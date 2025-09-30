@@ -1,119 +1,3 @@
-# 大麦抢票脚本 V1.0
-### 特征
-
-- 自动无延时抢票
-- 支持人员、城市、日期场次、价格选择
-
-## 功能介绍
-通过selenium打开页面进行登录，模拟用户购票流程自动购票
-
-其流程图如下:
-
-<img src="img/大麦抢票流程.png" width="50%" height="50%" />
-
-## 准备工作
-### 1. 配置环境
-
-#### 1.1安装python3环境
-
-**Windows**
-
-1. 访问Python官方网站：https://www.python.org/downloads/windows/
-2. 下载最新的Python 3.9+版本的安装程序。
-3. 运行安装程序。
-4. 在安装程序中，确保勾选 "Add Python X.X to PATH" 选项，这将自动将Python添加到系统环境变量中，方便在命令行中使用Python。
-5. 完成安装后，你可以在命令提示符或PowerShell中输入 `python3` 来启动Python解释器。
-
-**macOS**
-
-1. 你可以使用Homebrew来安装Python 3。
-
-   - 安装Homebrew（如果未安装）：打开终端并运行以下命令：
-
-     ```shell
-     /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-     ```
-
-   - 安装Python 3：运行以下命令来安装Python 3：
-
-     ```shell
-     brew install python@3
-     ```
-
-#### 1.2 安装所需要的环境
-
-在命令窗口输入如下指令
-
-```shell
-pip3 install selenium
-```
-
-#### 1.3 下载google chrome浏览器
-
-下载地址: https://www.google.cn/intl/zh-CN/chrome/?brand=YTUH&gclid=Cj0KCQjwj5mpBhDJARIsAOVjBdoV_1sBwdqKGHV3rUU1vJmNKZdy5QNzbRT8F5O0-_jq1WHXurE8a7MaAkWrEALw_wcB&gclsrc=aw.ds
-
-### 2. 修改配置文件
-
-在运行程序之前，需要先修改`config.json`文件。该文件用于指定用户需要抢票的相关信息，包括演唱会的场次、观演的人员、城市、日期、价格等。文件结果如下图所示：
-
-<img src="img/config_json.png" width="50%" height="50%" />
-
-#### 2.1 文件内容说明
-
-- `index_url`为大麦网的地址，**无需修改**
-- `login_url`为大麦网的登录地址，**无需修改**
-- `target_url`为用户需要抢的演唱会票的目标地址，**待修改**
-- `users`为观演人的姓名，**观演人需要用户在手机大麦APP中先填写好，然后再填入该配置文件中**，**待修改**
-- `city`为城市，**如果用户需要抢的演唱会票需要选择城市，请把城市填入此处。如无需选择，则不填**
-- `date`为场次日期，**待修改，可多选**
-- `price`为票档的价格，**待修改，可多选**
-- `if_commit_order`为是否要自动提交订单，**改成 true**
-- if_listen为是否回流监听，**改成true**
-
-
-
-#### 2.2 示例说明
-
-进入大麦网https://www.damai.cn/，选择你需要抢票的演唱会。假设如下图所示：
-
-<img src="img/example.png" width="50%" height="50%" />
-
-接下来按照下图的标注对配置文件进行修改：
-
-<img src="img/example_detail.png" width="50%" height="50%" />
-
-最终`config.json`的文件内容如下：
-
-```json
-{
-  "index_url": "https://www.damai.cn/",
-  "login_url": "https://passport.damai.cn/login?ru=https%3A%2F%2Fwww.damai.cn%2F",
-  "target_url": "https://detail.damai.cn/item.htm?spm=a2oeg.home.card_0.ditem_1.591b23e1JQGWHg&id=740680932762",
-  "users": [
-    "名字1",
-    "名字2"
-  ],
-  "city": "广州",
-  "date": "2023-10-28",
-  "price": "1039",
-  "if_listen":true,
-  "if_commit_order": true
-}
-```
-
-
-
-### 3.运行程序
-
-运行程序开始抢票，进入命令窗口，执行如下命令：
-
-```shell
-cd damai
-python3 damai.py
-```
-
-
-
 # 大麦app抢票
 
 大麦app抢票脚本需要依赖appium，因此需要现在安装appium server&client环境，步骤如下：
@@ -248,5 +132,591 @@ appium --use-plugins uiautomator2
   python3 damai_appium.py
   ```
 
-  
 
+# 大麦抢票 V2 Docker版 - 更新说明
+
+## 主要更新内容
+
+### 1. Appium启动参数优化
+```bash
+# V1版本
+appium
+
+# V2版本（支持mobile: clickGesture原生点击）
+appium --address 0.0.0.0 --port 4723 --relaxed-security
+```
+
+**--relaxed-security 的作用：**
+- 允许使用 `mobile: clickGesture` 进行原生点击操作
+- 大幅提升点击速度和可靠性
+- 支持坐标直接点击，避免元素等待
+
+### 2. 脚本执行文件更新
+```bash
+# V1版本
+python3 damai_appium.py
+
+# V2版本
+python3 damai_app_v2.py
+```
+
+### 3. 性能优化亮点
+
+#### 3.1 超快点击机制
+```python
+# 使用坐标原生点击，速度提升50%+
+driver.execute_script("mobile: clickGesture", {
+    "x": x,
+    "y": y,
+    "duration": 50  # 极短点击时间
+})
+```
+
+#### 3.2 批量用户选择优化
+- **V1**: 逐个查找→点击→等待（约1-2秒/用户）
+- **V2**: 批量收集坐标→连续点击（约0.01秒/用户）
+- **性能提升**: 3个用户从3-6秒降至0.1秒以内
+
+#### 3.3 WebDriverWait替代隐式等待
+```python
+# V1: 每次操作都等5秒
+driver.implicitly_wait(5)
+
+# V2: 精确等待，最快0.1秒返回
+WebDriverWait(self.driver, 2).until(...)
+```
+
+#### 3.4 UIAutomator2性能配置
+```python
+driver.update_settings({
+    "waitForIdleTimeout": 0,  # 不等待页面空闲
+    "actionAcknowledgmentTimeout": 0,  # 禁止等待动作确认
+    "keyInjectionDelay": 0,  # 禁止输入延迟
+    "waitForSelectorTimeout": 300,  # 从500ms减少到300ms
+})
+```
+
+### 4. 功能增强
+
+#### 4.1 智能重试机制
+```python
+bot.run_with_retry(max_retries=3)  # 失败自动重试3次
+```
+
+#### 4.2 多备选选择器
+- 城市选择：3种备选方案
+- 预约按钮：3种备选方案
+- 票价选择：2种备选方案
+- 大幅提升成功率
+
+#### 4.3 票价索引定位
+解决APP更新后票价Text为空的问题：
+```python
+# 通过index和clickable属性精确定位
+target_price = price_container.find_element(
+    AppiumBy.ANDROID_UIAUTOMATOR,
+    f'new UiSelector().className("android.widget.FrameLayout").index({price_index}).clickable(true)'
+)
+```
+
+### 5. 设备兼容性
+
+#### 已测试设备
+- ✅ OPPO Find X8 Pro (Android 14)
+- ✅ OnePlus 11 (Android 15)
+
+#### 配置方法
+修改 `damai_app_v2.py` 第35-36行：
+```python
+"platformVersion": "15",  # 你的Android版本
+"deviceName": "OnePlus 11",  # 你的设备型号
+```
+
+## 使用方法
+
+### 方式一：网络ADB连接（推荐）
+
+**1. 宿主机准备设备：**
+```bash
+# 开启网络ADB
+adb tcpip 5555
+adb connect <手机IP>:5555
+adb devices
+```
+
+**2. 运行容器：**
+```bash
+docker run -d \
+  --name damai-ticket \
+  --network host \
+  -e DEVICE_IP=<手机IP> \
+  damai-ticket
+```
+
+**3. 查看日志：**
+```bash
+docker logs -f damai-ticket
+```
+
+### 方式二：USB直连
+
+```bash
+docker run -d \
+  --name damai-ticket \
+  --privileged \
+  -v /dev/bus/usb:/dev/bus/usb \
+  --network host \
+  damai-ticket
+```
+
+## 配置文件说明
+
+在项目根目录创建 `config.json`：
+```json
+{
+  "server_url": "http://127.0.0.1:4723",
+  "keyword": "刘若英",
+  "users": ["张三", "李四"],
+  "city": "泉州",
+  "date": "10.04",
+  "price": "799元",
+  "price_index": 1,
+  "if_commit_order": true
+}
+```
+
+**参数说明：**
+- `server_url`: Appium服务器地址
+- `keyword`: 搜索关键词
+- `users`: 购票人姓名列表
+- `city`: 城市名称
+- `date`: 场次日期
+- `price`: 票价（仅用于日志显示）
+- `price_index`: 票价索引（0=第一档，1=第二档，以此类推）
+- `if_commit_order`: 是否自动提交订单
+
+## 性能对比
+
+| 操作 | V1耗时 | V2耗时 | 提升 |
+|------|--------|--------|------|
+| 单次点击 | 0.5-1秒 | 0.05-0.1秒 | **10倍** |
+| 选择3个用户 | 3-6秒 | <0.1秒 | **30-60倍** |
+| 完整流程 | 15-20秒 | 3-5秒 | **5倍** |
+
+## 注意事项
+
+1. **price_index需要手动测试确定**：不同演出票价档位不同
+2. **仅支持购票，预约功能暂未实现**
+3. **建议提前手动打开大麦APP并登录**
+4. **确保手机屏幕保持开启**
+5. **抢票前手动测试一遍流程**
+
+## 故障排查
+
+### 问题1: 找不到设备
+```bash
+# 检查设备连接
+docker exec -it damai-ticket adb devices
+
+# 重新连接
+docker exec -it damai-ticket adb connect <IP>:5555
+```
+
+### 问题2: 票价选择失败
+- 调整 `config.json` 中的 `price_index` 值
+- 手动数一下目标票价是第几个（从0开始）
+
+### 问题3: 用户选择失败
+- 确保姓名与大麦APP中完全一致
+- 检查是否已添加常用购票人
+
+### 问题4: 点击速度不够快
+- 确保Appium启动时使用了 `--relaxed-security`
+- 检查手机是否开启"性能模式"
+- 关闭不必要的后台应用
+
+## 更新日志
+
+### v2.0.0 (2025/09/13)
+- ✨ 重写点击机制，使用原生坐标点击
+- ✨ 优化用户选择为批量点击
+- ✨ 添加智能重试机制
+- ✨ 优化等待策略，使用WebDriverWait
+- ✨ 添加多备选选择器方案
+- 🐛 修复票价Text为空无法定位的问题
+- ⚡ 整体性能提升5倍
+
+### v1.0.0
+- 初始版本
+
+
+# Docker Compose 使用指南
+
+## 文件结构
+
+```
+project/
+├── Dockerfile
+├── docker-compose.yml
+├── config.json              # 抢票配置文件
+├── damai_appium/
+│   ├── damai_app_v2.py     # 抢票脚本
+│   └── config.py           # 配置解析
+└── logs/                    # 日志目录（可选）
+```
+
+## 配置说明
+
+### config.json 配置文件
+
+在项目根目录创建 `config.json`：
+
+```json
+{
+  "server_url": "http://127.0.0.1:4723",
+  "keyword": "刘若英",
+  "users": ["张三", "李四"],
+  "city": "泉州",
+  "date": "10.04",
+  "price": "799元",
+  "price_index": 1,
+  "if_commit_order": true
+}
+```
+
+## 使用方法
+
+### 方式一：网络ADB连接（推荐）⭐
+
+**适用场景：** 手机和电脑在同一WiFi网络下
+
+**步骤1：准备手机（在宿主机操作）**
+```bash
+# 1. 通过USB连接手机，开启USB调试
+adb devices
+
+# 2. 启用网络ADB
+adb tcpip 5555
+
+# 3. 查看手机IP地址
+# 方法1：通过ADB查看
+adb shell ip addr show wlan0 | grep inet
+
+# 方法2：在手机"设置-关于手机-状态信息"中查看
+# 假设获取到的IP是：192.168.1.100
+
+# 4. 断开USB，通过WiFi连接
+adb connect 192.168.1.100:5555
+
+# 5. 验证连接
+adb devices
+# 应显示：192.168.1.100:5555    device
+```
+
+**步骤2：修改docker-compose.yml**
+```yaml
+environment:
+  - DEVICE_IP=192.168.1.100  # 改为你的手机实际IP
+```
+
+**步骤3：启动服务**
+```bash
+# 构建镜像
+docker-compose build
+
+# 启动网络ADB模式
+docker-compose --profile network up -d
+
+# 查看日志
+docker-compose logs -f damai-ticket-network
+```
+
+**步骤4：停止服务**
+```bash
+docker-compose --profile network down
+```
+
+---
+
+### 方式二：USB直连
+
+**适用场景：** 手机通过USB线连接到电脑
+
+**步骤1：连接手机**
+```bash
+# 确保USB调试已开启
+adb devices
+# 应显示设备列表
+```
+
+**步骤2：启动服务**
+```bash
+# 构建镜像
+docker-compose build
+
+# 启动USB直连模式
+docker-compose --profile usb up -d
+
+# 查看日志
+docker-compose logs -f damai-ticket-usb
+```
+
+**步骤3：停止服务**
+```bash
+docker-compose --profile usb down
+```
+
+---
+
+### 方式三：仅启动Appium Server（调试用）
+
+**适用场景：** 需要手动运行Python脚本进行调试
+
+**启动Appium Server：**
+```bash
+# 启动调试模式
+docker-compose --profile debug up -d
+
+# Appium Server将运行在 http://localhost:4723
+```
+
+**手动运行脚本：**
+```bash
+# 在宿主机上运行
+cd damai_appium
+python3 damai_app_v2.py
+```
+
+**停止服务：**
+```bash
+docker-compose --profile debug down
+```
+
+---
+
+## 环境变量配置
+
+### 使用 .env 文件（推荐）
+
+创建 `.env` 文件在项目根目录：
+
+```bash
+# 手机IP地址
+DEVICE_IP=192.168.1.100
+
+# 其他配置（可选）
+APPIUM_PORT=4723
+```
+
+修改 `docker-compose.yml`：
+```yaml
+environment:
+  - DEVICE_IP=${DEVICE_IP}
+  - APPIUM_PORT=${APPIUM_PORT:-4723}
+```
+
+这样就不需要直接在docker-compose.yml中修改IP了。
+
+---
+
+## 常用命令
+
+### 构建和启动
+```bash
+# 构建镜像
+docker-compose build
+
+# 启动服务（网络ADB）
+docker-compose --profile network up -d
+
+# 启动服务（USB直连）
+docker-compose --profile usb up -d
+
+# 重新构建并启动
+docker-compose --profile network up -d --build
+```
+
+### 查看状态和日志
+```bash
+# 查看运行状态
+docker-compose ps
+
+# 实时查看日志
+docker-compose logs -f
+
+# 查看特定服务的日志
+docker-compose logs -f damai-ticket-network
+
+# 查看最近100行日志
+docker-compose logs --tail=100
+```
+
+### 进入容器调试
+```bash
+# 进入运行中的容器
+docker-compose exec damai-ticket-network bash
+
+# 在容器内检查ADB设备
+docker-compose exec damai-ticket-network adb devices
+
+# 在容器内手动连接设备
+docker-compose exec damai-ticket-network adb connect 192.168.1.100:5555
+```
+
+### 停止和清理
+```bash
+# 停止服务
+docker-compose --profile network down
+
+# 停止并删除卷
+docker-compose --profile network down -v
+
+# 停止、删除并清理镜像
+docker-compose --profile network down --rmi all
+```
+
+### 重启服务
+```bash
+# 重启服务
+docker-compose --profile network restart
+
+# 重启特定服务
+docker-compose restart damai-ticket-network
+```
+
+---
+
+## 故障排查
+
+### 问题1：找不到设备
+
+**检查设备连接：**
+```bash
+docker-compose exec damai-ticket-network adb devices
+```
+
+**重新连接设备：**
+```bash
+docker-compose exec damai-ticket-network adb connect 192.168.1.100:5555
+```
+
+**查看详细日志：**
+```bash
+docker-compose logs -f damai-ticket-network
+```
+
+### 问题2：端口被占用
+
+**检查端口占用：**
+```bash
+lsof -i :4723
+```
+
+**杀死占用进程：**
+```bash
+kill -9 <PID>
+```
+
+### 问题3：配置文件未生效
+
+**检查挂载：**
+```bash
+docker-compose exec damai-ticket-network ls -la /app/damai_appium/config.json
+```
+
+**查看配置内容：**
+```bash
+docker-compose exec damai-ticket-network cat /app/damai_appium/config.json
+```
+
+### 问题4：权限问题（USB模式）
+
+**Linux系统需要添加udev规则：**
+```bash
+# 创建udev规则文件
+sudo nano /etc/udev/rules.d/51-android.rules
+
+# 添加以下内容（根据手机品牌调整）
+SUBSYSTEM=="usb", ATTR{idVendor}=="2a70", MODE="0666", GROUP="plugdev"  # OnePlus
+SUBSYSTEM=="usb", ATTR{idVendor}=="22d9", MODE="0666", GROUP="plugdev"  # OPPO
+
+# 重新加载规则
+sudo udevadm control --reload-rules
+sudo udevadm trigger
+```
+
+---
+
+## 高级配置
+
+### 多设备同时抢票
+
+创建多个服务配置：
+
+```yaml
+services:
+  damai-ticket-device1:
+    build: .
+    container_name: damai-ticket-device1
+    network_mode: host
+    environment:
+      - DEVICE_IP=192.168.1.100
+    volumes:
+      - ./config.json:/app/damai_appium/config.json
+    profiles:
+      - multi
+
+  damai-ticket-device2:
+    build: .
+    container_name: damai-ticket-device2
+    network_mode: host
+    environment:
+      - DEVICE_IP=192.168.1.101
+    volumes:
+      - ./config2.json:/app/damai_appium/config.json
+    profiles:
+      - multi
+```
+
+启动：
+```bash
+docker-compose --profile multi up -d
+```
+
+### 自定义Appium端口
+
+```yaml
+environment:
+  - APPIUM_PORT=4724
+command: >
+  bash -c "appium --address 0.0.0.0 --port 4724 --relaxed-security &
+           sleep 5 && cd damai_appium && python3 damai_app_v2.py"
+```
+
+---
+
+## 性能优化建议
+
+1. **使用网络ADB而非USB**：更稳定，不受USB线缆影响
+2. **关闭不必要的日志**：减少I/O开销
+3. **使用SSD存储**：加快镜像构建和容器启动
+4. **分配足够内存**：Docker Desktop建议至少4GB内存
+
+---
+
+## 安全建议
+
+1. **.env文件加入.gitignore**：避免IP等敏感信息泄露
+2. **不要在公共网络使用网络ADB**：可能被攻击
+3. **抢票后及时关闭网络ADB**：`adb usb`
+4. **定期更新镜像**：获取安全补丁
+
+---
+
+## 更新日志
+
+### 2025-09-30
+- ✨ 新增docker-compose.yml配置
+- ✨ 支持网络ADB和USB两种连接方式
+- ✨ 添加调试模式
+- 📝 完善使用文档
