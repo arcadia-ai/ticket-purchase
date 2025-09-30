@@ -1,0 +1,55 @@
+version: '3.8'
+
+services:
+  # 方式一：网络ADB连接（推荐）
+  damai-ticket-network:
+    build: .
+    image: damai-ticket:latest
+    container_name: damai-ticket-network
+    network_mode: host
+    environment:
+      # 修改为你的手机IP地址
+      - DEVICE_IP=192.168.1.100
+    volumes:
+      # 挂载配置文件（可选）
+      - ./damai_appium/config.json:/app/damai_appium/config.json
+      # 挂载日志目录（可选）
+      - ./logs:/app/logs
+    restart: unless-stopped
+    profiles:
+      - network
+
+  # 方式二：USB直连
+  damai-ticket-usb:
+    build: .
+    image: damai-ticket:latest
+    container_name: damai-ticket-usb
+    network_mode: host
+    privileged: true
+    volumes:
+      # USB设备挂载
+      - /dev/bus/usb:/dev/bus/usb
+      # 挂载配置文件（可选）
+      - ./damai_appium/config.json:/app/damai_appium/config.json
+      # 挂载日志目录（可选）
+      - ./logs:/app/logs
+    restart: unless-stopped
+    profiles:
+      - usb
+
+  # 方式三：仅启动Appium Server（调试用）
+  appium-server:
+    build: .
+    image: damai-ticket:latest
+    container_name: appium-server
+    network_mode: host
+    privileged: true
+    environment:
+      - DEVICE_IP=${DEVICE_IP:-}
+    volumes:
+      - /dev/bus/usb:/dev/bus/usb
+      - ./damai_appium/config.json:/app/damai_appium/config.json
+    command: appium --address 0.0.0.0 --port 4723 --relaxed-security
+    restart: unless-stopped
+    profiles:
+      - debug

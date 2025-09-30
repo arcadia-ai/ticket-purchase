@@ -29,8 +29,8 @@ class DamaiBot:
         """初始化驱动配置"""
         capabilities = {
             "platformName": "Android",  # 操作系统
-            "platformVersion": "14",  # 系统版本
-            "deviceName": "OPPO Find X8 Pro",  # 设备名称
+            "platformVersion": "15",  # 系统版本
+            "deviceName": "OnePlus 11",  # 设备名称
             "appPackage": "cn.damai",  # app 包名
             "appActivity": ".launcher.splash.SplashMainActivity",  # app 启动 Activity
             "unicodeKeyboard": True,  # 支持 Unicode 输入
