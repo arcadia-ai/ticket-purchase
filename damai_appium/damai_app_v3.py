@@ -370,47 +370,47 @@ XML source:
         time.sleep(0.5)
 
         # 日期选择（可选）
-        if self.config.date:
-            # 🔧 新增：滚动确保日期可见
-            self.scroll_to_date()
-            time.sleep(1)
-
-            date_description = f"date selection text or button containing '{self.config.date}', format like '10.04' or '10月4日', in schedule or calendar section, prefer TextView"
-            date_el = self.find_element_with_ollama(date_description)
-            if date_el:
-                self.safe_click(date_el)
-                print(f"  ✓ 选择日期: {self.config.date} (Ollama)")
-            else:
-                # 回退原逻辑 + 调试
-                try:
-                    date_el = self.driver.find_element(
-                        AppiumBy.ANDROID_UIAUTOMATOR,
-                        f'new UiSelector().textContains("{self.config.date}")'
-                    )
-                    self.safe_click(date_el)
-                    print(f"  ✓ 选择日期: {self.config.date}")
-                    time.sleep(0.5)
-                except:
-                    # 🔧 新增：尝试中文格式
-                    try:
-                        chinese_date = self.config.date.replace('.', '月') + '日'
-                        date_el = self.driver.find_element(
-                            AppiumBy.ANDROID_UIAUTOMATOR,
-                            f'new UiSelector().textContains("{chinese_date}")'
-                        )
-                        self.safe_click(date_el)
-                        print(f"  ✓ 选择日期: {chinese_date} (中文格式)")
-                        time.sleep(0.5)
-                    except:
-                        print(f"  ⚠ 未找到日期 '{self.config.date}'，跳过（可能需手动检查场次）")
-                        # 🔧 新增：调试打印 XML
-                        try:
-                            with open("date_debug.xml", "w", encoding="utf-8") as f:
-                                f.write(self.driver.page_source)
-                            print("  ✓ 已保存日期调试 XML: date_debug.xml")
-                        except:
-                            pass
-            time.sleep(0.5)
+        # if self.config.date:
+        #     # 🔧 新增：滚动确保日期可见
+        #     self.scroll_to_date()
+        #     time.sleep(1)
+        #
+        #     date_description = f"date selection text or button containing '{self.config.date}', format like '10.04' or '10月4日', in schedule or calendar section, prefer TextView"
+        #     date_el = self.find_element_with_ollama(date_description)
+        #     if date_el:
+        #         self.safe_click(date_el)
+        #         print(f"  ✓ 选择日期: {self.config.date} (Ollama)")
+        #     else:
+        #         # 回退原逻辑 + 调试
+        #         try:
+        #             date_el = self.driver.find_element(
+        #                 AppiumBy.ANDROID_UIAUTOMATOR,
+        #                 f'new UiSelector().textContains("{self.config.date}")'
+        #             )
+        #             self.safe_click(date_el)
+        #             print(f"  ✓ 选择日期: {self.config.date}")
+        #             time.sleep(0.5)
+        #         except:
+        #             # 🔧 新增：尝试中文格式
+        #             try:
+        #                 chinese_date = self.config.date.replace('.', '月') + '日'
+        #                 date_el = self.driver.find_element(
+        #                     AppiumBy.ANDROID_UIAUTOMATOR,
+        #                     f'new UiSelector().textContains("{chinese_date}")'
+        #                 )
+        #                 self.safe_click(date_el)
+        #                 print(f"  ✓ 选择日期: {chinese_date} (中文格式)")
+        #                 time.sleep(0.5)
+        #             except:
+        #                 print(f"  ⚠ 未找到日期 '{self.config.date}'，跳过（可能需手动检查场次）")
+        #                 # 🔧 新增：调试打印 XML
+        #                 try:
+        #                     with open("date_debug.xml", "w", encoding="utf-8") as f:
+        #                         f.write(self.driver.page_source)
+        #                     print("  ✓ 已保存日期调试 XML: date_debug.xml")
+        #                 except:
+        #                     pass
+        #     time.sleep(0.5)
 
         return True
 
