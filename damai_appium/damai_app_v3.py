@@ -24,9 +24,9 @@ class DamaiBot:
         self.config = Config.load_config()
         self.driver = None
         self.wait = None
-        self.model = self.config.get('ollama_model', 'gpt-oss:120b-cloud')  # 从 config 读取模型
+        self.model = 'gpt-oss:120b-cloud'  # 从 config 读取模型
         self.ollama_client = ollama.Client(
-            host=self.config.get('ollama_host', 'http://192.168.123.200:11434'))  # 从 config 读取 URL
+            host='http://192.168.123.200:11434')  # 从 config 读取 URL
         self._setup_driver()
 
     def _setup_driver(self):
