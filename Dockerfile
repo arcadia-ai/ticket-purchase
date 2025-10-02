@@ -93,8 +93,8 @@ RUN pip3 install --no-cache-dir appium-python-client
 # 复制项目文件到容器
 COPY . /app
 
-# 暴露Appium Server默认端口和Ollama端口
-EXPOSE 4723 11434
+# 暴露Appium Server默认端口
+EXPOSE 4723
 
 # 创建启动脚本（V2 版本 - 支持配置保存和重用）
 RUN echo '#!/bin/bash\n\
@@ -104,13 +104,6 @@ echo "========================================"\n\
 echo "大麦抢票系统 V2 - Docker版（带Ollama支持）"\n\
 echo "========================================"\n\
 echo ""\n\
-echo "启动 Ollama Server..."\n\
-ollama serve --host 0.0.0.0 &\n\
-OLLAMA_PID=$!\n\
-\n\
-echo "等待 Ollama Server 启动..."\n\
-sleep 5\n\
-\n\
 echo "启动 Appium Server（带 relaxed-security 支持）..."\n\
 appium --address 0.0.0.0 --port 4723 --relaxed-security &\n\
 APPIUM_PID=$!\n\
@@ -312,7 +305,7 @@ if [ -f "$CONFIG_FILE" ]; then\n\
       # 重新配置\n\
       interactive_config\n\
       if [ $? -ne 0 ]; then\n\
-        kill $APPIUM_PID $OLLAMA_PID\n\
+        kill $APPIUM_PID\n\
         exit 1\n\
       fi\n\
       \n\
@@ -324,13 +317,13 @@ if [ -f "$CONFIG_FILE" ]; then\n\
       if [ $? -ne 0 ]; then\n\
         echo ""\n\
         echo "❌ 连接失败！请检查配置"\n\
-        kill $APPIUM_PID $OLLAMA_PID\n\
+        kill $APPIUM_PID\n\
         exit 1\n\
       fi\n\
     else\n\
       echo ""\n\
       echo "❌ 连接失败，退出程序"\n\
-      kill $APPIUM_PID $OLLAMA_PID\n\
+      kill $APPIUM_PID\n\
       exit 1\n\
     fi\n\
   fi\n\
@@ -343,7 +336,7 @@ else\n\
   # 交互式配置\n\
   interactive_config\n\
   if [ $? -ne 0 ]; then\n\
-    kill $APPIUM_PID $OLLAMA_PID\n\
+    kill $APPIUM_PID\n\
     exit 1\n\
   fi\n\
   \n\
@@ -370,7 +363,7 @@ else\n\
         ;;\n\
     esac\n\
     rm -f $CONFIG_FILE\n\
-    kill $APPIUM_PID $OLLAMA_PID\n\
+    kill $APPIUM_PID\n\
     exit 1\n\
   fi\n\
   \n\
@@ -395,7 +388,7 @@ if [ "$DEVICE_COUNT" -eq 0 ]; then\n\
   echo "2. 网络连接配置正确"\n\
   echo "3. 或使用 USB 连接并挂载设备: docker run --privileged -v /dev/bus/usb:/dev/bus/usb ..."\n\
   echo ""\n\
-  kill $APPIUM_PID $OLLAMA_PID\n\
+  kill $APPIUM_PID\n\
   exit 1\n\
 fi\n\
 \n\
@@ -408,7 +401,7 @@ echo "开始执行抢票任务（V2 版本）"\n\
 echo "========================================"\n\
 cd damai_appium && python3 damai_app_v2.py\n\
 \n\
-# 脚本执行完毕后保持 Appium 和 Ollama 运行\n\
+# 脚本执行完毕后保持 Appium 运行\n\
 echo ""\n\
 echo "抢票脚本执行完毕"\n\
 \n\
@@ -416,8 +409,8 @@ echo ""\n\
 echo "💡 提示: 如需重新配置连接，可手动删除配置文件:"\n\
 echo "   docker exec <container_id> rm /app/adb_config.txt"\n\
 echo ""\n\
-echo "Appium Server 和 Ollama Server 继续运行中..."\n\
-wait $APPIUM_PID $OLLAMA_PID\n\
+echo "Appium Server 继续运行中..."\n\
+wait $APPIUM_PID\n\
 ' > /app/start.sh && chmod +x /app/start.sh
 
 # 默认启动命令
