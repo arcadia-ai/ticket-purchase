@@ -7,9 +7,6 @@ services:
     image: damai-ticket:latest
     container_name: damai-ticket-network
     network_mode: host
-    environment:
-      # 修改为你的手机IP地址
-      - DEVICE_IP=192.168.1.100
     volumes:
       # 挂载配置文件（可选）
       - ./damai_appium/config.json:/app/damai_appium/config.json
