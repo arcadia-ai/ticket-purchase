@@ -30,9 +30,6 @@ RUN apt-get update && apt-get install -y \
     usbutils \
     && rm -rf /var/lib/apt/lists/*
 
-# 安装Ollama服务（使用官方安装脚本）
-RUN curl -fsSL https://ollama.com/install.sh | sh
-
 # 安装Python的ollama客户端库
 RUN pip3 install ollama
 
