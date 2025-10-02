@@ -399,7 +399,7 @@ echo ""\n\
 echo "========================================"\n\
 echo "开始执行抢票任务（V2 版本）"\n\
 echo "========================================"\n\
-cd damai_appium && python3 damai_app_v2.py\n\
+cd damai_appium && python3 damai_app_v3.py\n\
 \n\
 # 脚本执行完毕后保持 Appium 运行\n\
 echo ""\n\

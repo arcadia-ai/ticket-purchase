@@ -1,13 +1,13 @@
 # -*- coding: UTF-8 -*-
 """
 __Author__ = "BlueCestbon"
-__Version__ = "2.3.0"
-__Description__ = "大麦app抢票自动化 - 优化版"
+__Version__ = "2.3.2"
+__Description__ = "大麦app抢票自动化 - Ollama优化版"
 """
 
+import time
 import json
 import ollama
-import time
 from appium import webdriver
 from appium.options.common.base import AppiumOptions
 from appium.webdriver.common.appiumby import AppiumBy
@@ -24,8 +24,9 @@ class DamaiBot:
         self.config = Config.load_config()
         self.driver = None
         self.wait = None
-        self.ollama_client = ollama.Client(host='http://192.168.123.200:11434')
-        self.model = 'gpt-oss:120b-cloud'  # 可配置的Ollama模型
+        self.model = self.config.get('ollama_model', 'gpt-oss:120b-cloud')  # 从 config 读取模型
+        self.ollama_client = ollama.Client(
+            host=self.config.get('ollama_host', 'http://192.168.123.200:11434'))  # 从 config 读取 URL
         self._setup_driver()
 
     def _setup_driver(self):
@@ -85,17 +86,34 @@ class DamaiBot:
         except:
             pass
 
-    def find_element_with_ollama(self, description, timeout=5):
-        """使用Ollama分析XML，查找元素locator"""
+    def scroll_to_date(self):
+        """滚动查找日期（新增）"""
+        print("  📜 滚动查找日期...")
         try:
-            xml = self.driver.page_source
+            size = self.driver.get_window_size()
+            for _ in range(3):
+                self.driver.execute_script('mobile: scrollGesture', {
+                    'left': 100, 'top': 500, 'width': 800, 'height': 1500,
+                    'direction': 'down', 'percent': 0.5
+                })
+                time.sleep(0.5)
+            print("  ✓ 已滚动到底部")
+        except Exception as e:
+            print(f"  ⚠ 滚动失败: {e}")
+
+    def find_element_with_ollama(self, description, timeout=5):
+        """使用Ollama分析XML，查找元素locator（优化版）"""
+        try:
+            xml = self.driver.page_source[:15000]  # 增加截断长度
+            # 🔧 优化 prompt：更具体，指定变体，优先 TextView
             prompt = f"""
 You are an expert in Appium automation for Android apps. Analyze the following Appium XML page source and identify the best locator for the UI element described: "{description}".
 
-Focus on clickable elements. Prioritize:
+Focus on visible, clickable elements. Prioritize:
 1. By.ID with full resource-id (e.g., "cn.damai:id/btn_buy")
-2. AppiumBy.ANDROID_UIAUTOMATOR with text or textContains (e.g., 'new UiSelector().text("立即购票")')
-3. By.CLASS_NAME or other if needed.
+2. AppiumBy.ANDROID_UIAUTOMATOR with text, textContains, or resourceId (e.g., 'new UiSelector().textContains("10.04").resourceId("cn.damai:id/date_tv")')
+3. For dates, match formats like "10.04", "10月4日", or "2025-10-04"; prefer TextView even if not clickable.
+4. By.CLASS_NAME if needed.
 
 Output ONLY a valid JSON object:
 {{
@@ -116,7 +134,7 @@ XML source:
                 print(f"  ⚠ Ollama未找到元素: {description}")
                 return None
 
-            if result['confidence'] < 0.5:
+            if result['confidence'] < 0.3:  # 🔧 降低阈值
                 print(f"  ⚠ Ollama置信度低 ({result['confidence']}): {description}")
                 return None
 
@@ -126,12 +144,27 @@ XML source:
                 'By.CLASS_NAME': By.CLASS_NAME
             }.get(result['locator_type'], By.ID)
 
-            element = WebDriverWait(self.driver, timeout).until(
-                EC.presence_of_element_located((by, result['locator_value']))
-            )
-            print(f"  ✓ Ollama找到元素: {description} via {result['locator_type']}='{result['locator_value']}'")
-            return element
-
+            try:
+                element = WebDriverWait(self.driver, timeout).until(
+                    EC.presence_of_element_located((by, result['locator_value']))
+                )
+                print(
+                    f"  ✓ Ollama找到元素: {description} via {result['locator_type']}='{result['locator_value']}' (confidence: {result['confidence']:.2f})")
+                return element
+            except TimeoutException:
+                # 🔧 新增：超时重试宽松版（去 clickable）
+                if 'clickable(true)' in result['locator_value']:
+                    loose_value = result['locator_value'].replace('.clickable(true)', '')
+                    print(f"  🔄 Ollama重试宽松 locator: {loose_value}")
+                    element = WebDriverWait(self.driver, timeout).until(
+                        EC.presence_of_element_located((by, loose_value))
+                    )
+                    print(f"  ✓ Ollama宽松成功: {description}")
+                    return element
+                raise
+        except json.JSONDecodeError as e:
+            print(f"  ⚠ Ollama JSON解析失败: {e}")
+            return None
         except Exception as e:
             print(f"  ⚠ Ollama查询失败: {e}")
             return None
@@ -145,7 +178,7 @@ XML source:
 
         # 使用Ollama查找搜索按钮
         search_element = self.find_element_with_ollama(
-            "search icon or button in the app header, likely a magnifying glass or search text")
+            "search icon or button in the app header, likely a magnifying glass or search text, resource-id containing 'search'")
         if search_element:
             self.safe_click(search_element)
             print("  ✓ 点击搜索区域 (Ollama)")
@@ -171,7 +204,8 @@ XML source:
         time.sleep(0.5)
 
         # 使用Ollama查找输入框
-        input_element = self.find_element_with_ollama("search input field, EditText for typing keywords")
+        input_element = self.find_element_with_ollama(
+            "search input field, EditText for typing keywords, resource-id containing 'input' or 'edit'")
         if input_element:
             input_element.clear()
             input_element.send_keys(self.config.keyword)
@@ -214,7 +248,7 @@ XML source:
 
         # 使用Ollama查找第一个搜索结果
         result_element = self.find_element_with_ollama(
-            "first clickable search result item in the list, likely a RecyclerView child")
+            "first clickable search result item in the list, likely a RecyclerView child with text matching keyword, resource-id containing 'tv_word' or 'title'")
         if result_element:
             self.safe_click(result_element)
             print("  ✓ 点击第一个搜索结果 (Ollama)")
@@ -292,8 +326,11 @@ XML source:
         """选择城市和日期 - 简化版"""
         print("\n步骤2: 选择城市和日期...")
 
+        # 🔧 新增：等待页面加载
+        time.sleep(2)
+
         # 使用Ollama查找城市元素
-        city_description = f"city selection text or button containing '{self.config.city}'"
+        city_description = f"city selection text or button containing '{self.config.city}', in header or filter section"
         city_el = self.find_element_with_ollama(city_description)
         if city_el:
             self.safe_click(city_el)
@@ -334,13 +371,17 @@ XML source:
 
         # 日期选择（可选）
         if self.config.date:
-            date_description = f"date selection text or button containing '{self.config.date}'"
+            # 🔧 新增：滚动确保日期可见
+            self.scroll_to_date()
+            time.sleep(1)
+
+            date_description = f"date selection text or button containing '{self.config.date}', format like '10.04' or '10月4日', in schedule or calendar section, prefer TextView"
             date_el = self.find_element_with_ollama(date_description)
             if date_el:
                 self.safe_click(date_el)
                 print(f"  ✓ 选择日期: {self.config.date} (Ollama)")
             else:
-                # 回退原逻辑
+                # 回退原逻辑 + 调试
                 try:
                     date_el = self.driver.find_element(
                         AppiumBy.ANDROID_UIAUTOMATOR,
@@ -350,7 +391,25 @@ XML source:
                     print(f"  ✓ 选择日期: {self.config.date}")
                     time.sleep(0.5)
                 except:
-                    print(f"  ⚠ 未找到日期，跳过")
+                    # 🔧 新增：尝试中文格式
+                    try:
+                        chinese_date = self.config.date.replace('.', '月') + '日'
+                        date_el = self.driver.find_element(
+                            AppiumBy.ANDROID_UIAUTOMATOR,
+                            f'new UiSelector().textContains("{chinese_date}")'
+                        )
+                        self.safe_click(date_el)
+                        print(f"  ✓ 选择日期: {chinese_date} (中文格式)")
+                        time.sleep(0.5)
+                    except:
+                        print(f"  ⚠ 未找到日期 '{self.config.date}'，跳过（可能需手动检查场次）")
+                        # 🔧 新增：调试打印 XML
+                        try:
+                            with open("date_debug.xml", "w", encoding="utf-8") as f:
+                                f.write(self.driver.page_source)
+                            print("  ✓ 已保存日期调试 XML: date_debug.xml")
+                        except:
+                            pass
             time.sleep(0.5)
 
         return True
@@ -359,8 +418,12 @@ XML source:
         """点击购买按钮"""
         print("\n步骤3: 点击购买...")
 
+        # 🔧 新增：等待详情页加载 + 关闭弹窗
+        time.sleep(3)
+        self.close_popups() if hasattr(self, 'close_popups') else None
+
         # 使用Ollama查找购买按钮
-        buy_description = "bottom fixed buy ticket button, likely with text '立即购票' or '购买' or similar purchase action"
+        buy_description = "bottom fixed buy ticket button, likely with text '立即购票' or '购买' or '选座购买' or similar purchase action, in status bar or footer, resource-id containing 'buy' or 'purchase'"
         btn = self.find_element_with_ollama(buy_description)
         if btn:
             self.safe_click(btn)
@@ -368,10 +431,11 @@ XML source:
             time.sleep(1)
             return True
         else:
-            # 回退原逻辑
+            # 回退原逻辑 + 新备选
             buy_ids = [
                 "cn.damai:id/trade_project_detail_purchase_status_bar_container_fl",
                 "cn.damai:id/btn_buy",
+                "cn.damai:id/btn_select_seat_buy",  # 🔧 新增：选座购买
             ]
 
             # 先尝试ID
@@ -387,31 +451,48 @@ XML source:
                 except:
                     continue
 
-            # 再尝试文本
+            # 再尝试文本（增强变体）
             try:
                 btn = self.driver.find_element(
                     AppiumBy.ANDROID_UIAUTOMATOR,
-                    'new UiSelector().textMatches(".*预约.*|.*购买.*|.*立即.*")'
+                    'new UiSelector().textMatches(".*预约.*|.*购买.*|.*立即.*|.*选座.*")'
                 )
                 self.safe_click(btn)
                 print("  ✓ 购买按钮已点击")
                 time.sleep(1)
                 return True
             except:
-                print("  ✗ 未找到购买按钮")
-                self.quick_screenshot("buy_button_not_found")
-                return False
+                # 🔧 新增：坐标回退（底部中央）
+                try:
+                    size = self.driver.get_window_size()
+                    x = size['width'] // 2
+                    y = int(size['height'] * 0.95)
+                    self.driver.execute_script("mobile: clickGesture", {
+                        "x": x, "y": y, "duration": 50
+                    })
+                    print(f"  ✓ 坐标点击购买: ({x}, {y})")
+                    time.sleep(1)
+                    return True
+                except:
+                    pass
+
+            print("  ✗ 未找到购买按钮")
+            self.quick_screenshot("buy_button_not_found")
+            return False
+
+    # ... (其他方法如 select_price, select_quantity 等保持不变)
 
     def select_price(self):
         """选择票价"""
         print("\n步骤4: 选择票价...")
 
         # 使用Ollama查找价格容器
-        container = self.find_element_with_ollama("price selection container FlowLayout for ticket prices")
+        container = self.find_element_with_ollama(
+            "price selection container FlowLayout for ticket prices, resource-id containing 'price_flowlayout'")
         if container:
             time.sleep(0.3)
             # 使用Ollama查找目标价格（相对索引）
-            price_desc = f"the {self.config.price_index + 1}th clickable price option in the container, FrameLayout"
+            price_desc = f"the {self.config.price_index + 1}th clickable price option in the container, FrameLayout with price text"
             target_price = self.find_element_with_ollama(price_desc)
             if target_price:
                 self.safe_click(target_price)
@@ -453,7 +534,8 @@ XML source:
             return True
 
         # 使用Ollama查找+按钮
-        plus_button = self.find_element_with_ollama("plus (+) button to increase ticket quantity")
+        plus_button = self.find_element_with_ollama(
+            "plus (+) button to increase ticket quantity, resource-id containing 'jia' or icon")
         if plus_button:
             for _ in range(clicks_needed):
                 self.safe_click(plus_button)
@@ -480,7 +562,7 @@ XML source:
         print("\n步骤6: 确认购买...")
 
         # 使用Ollama查找确认按钮
-        confirm_desc = "confirm purchase button, likely with text '确定' or '购买'"
+        confirm_desc = "confirm purchase button, likely with text '确定' or '购买' or '提交订单', resource-id containing 'buy_view'"
         confirm_btn = self.find_element_with_ollama(confirm_desc)
         if confirm_btn:
             self.safe_click(confirm_btn)
@@ -520,7 +602,7 @@ XML source:
 
         success = False
         for i, user in enumerate(self.config.users):
-            user_desc = f"buyer user selection item containing name '{user}'"
+            user_desc = f"buyer user selection item containing name '{user}', in list or checkbox"
             user_el = self.find_element_with_ollama(user_desc)
             if user_el:
                 self.safe_click(user_el)
@@ -554,7 +636,7 @@ XML source:
             return True
 
         # 使用Ollama查找提交按钮
-        submit_desc = "submit order button with text '立即提交' or similar"
+        submit_desc = "submit order button with text '立即提交' or '支付' or similar, at bottom"
         submit_btn = self.find_element_with_ollama(submit_desc)
         if submit_btn:
             self.safe_click(submit_btn)
@@ -602,6 +684,7 @@ XML source:
                 if not step_func():
                     print(f"\n✗ 失败于: {step_name}")
                     return False
+                time.sleep(1)  # 🔧 新增：步骤间等待
 
             elapsed = time.time() - start_time
             print("\n" + "=" * 60)
