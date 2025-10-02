@@ -1,18 +1,18 @@
 # -*- coding: UTF-8 -*-
 """
 __Author__ = "BlueCestbon"
-__Version__ = "2.3.1"
-__Description__ = "大麦app抢票自动化 - 修复版"
+__Version__ = "2.3.0"
+__Description__ = "大麦app抢票自动化 - 优化版"
 """
 
 import time
 from appium import webdriver
 from appium.options.common.base import AppiumOptions
 from appium.webdriver.common.appiumby import AppiumBy
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, NoSuchElementException
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.support.ui import WebDriverWait
 
 from config import Config
 
@@ -58,7 +58,7 @@ class DamaiBot:
             "allowInvisibleElements": False,
         })
 
-        self.driver.implicitly_wait(1)  # 修改：减少到1秒，避免卡顿
+        self.driver.implicitly_wait(2)
         self.wait = WebDriverWait(self.driver, 3)
 
     def safe_click(self, element):
@@ -81,140 +81,13 @@ class DamaiBot:
         except:
             pass
 
-    # ========== 🔧 新增：调试辅助方法 ==========
-    def print_page_source(self, max_lines=30):
-        """打印页面源码（用于调试）- 带超时保护"""
-        try:
-            # 🔧 添加超时保护，避免卡死
-            import signal
-            def timeout_handler(signum, frame):
-                raise TimeoutException("获取页面源码超时")
-            
-            # 设置3秒超时（仅Linux/Mac有效，Windows会跳过）
-            try:
-                signal.signal(signal.SIGALRM, timeout_handler)
-                signal.alarm(3)
-            except:
-                pass
-            
-            source = self.driver.page_source
-            
-            # 取消超时
-            try:
-                signal.alarm(0)
-            except:
-                pass
-            
-            lines = source.split('\n')[:max_lines]
-            line_count = len(source.split('\n'))
-            print("\n  📄 页面源码片段：")
-            for line in lines:
-                print(f"  {line}")
-            print(f"  ... (共{line_count}行)\n")
-        except TimeoutException:
-            print("  ⚠ 获取页面源码超时，跳过")
-        except Exception as e:
-            print(f"  ⚠ 无法获取页面源码: {e}")
-
-    def wait_for_page_load(self, timeout=5):
-        """等待页面加载完成"""
-        print(f"  ⏳ 等待页面加载...")
-        time.sleep(timeout)
-        print(f"  ✓ 页面加载完成")
-    
-    # ========== 🔧 新增：关闭弹窗方法 ==========
-    def close_popups(self):
-        """关闭可能的弹窗、广告、引导页"""
-        print("  🔍 检查并关闭弹窗...")
-        
-        # 常见的关闭按钮文本
-        close_texts = ["关闭", "跳过", "我知道了", "取消", "稍后", "close", "Close"]
-        
-        # 常见的关闭按钮ID
-        close_ids = [
-            "cn.damai:id/btn_close",
-            "cn.damai:id/iv_close",
-            "cn.damai:id/close",
-            "cn.damai:id/btn_cancel",
-        ]
-        
-        closed_count = 0
-        
-        # 尝试点击关闭按钮（通过ID）
-        for close_id in close_ids:
-            try:
-                close_btn = self.driver.find_element(By.ID, close_id)
-                self.safe_click(close_btn)
-                print(f"  ✓ 关闭弹窗: {close_id}")
-                closed_count += 1
-                time.sleep(0.3)
-            except:
-                pass
-        
-        # 尝试点击关闭按钮（通过文本）
-        for text in close_texts:
-            try:
-                close_btn = self.driver.find_element(
-                    AppiumBy.ANDROID_UIAUTOMATOR,
-                    f'new UiSelector().textContains("{text}")'
-                )
-                self.safe_click(close_btn)
-                print(f"  ✓ 关闭弹窗: {text}")
-                closed_count += 1
-                time.sleep(0.3)
-                break  # 只关闭一个就够了
-            except:
-                pass
-        
-        # 尝试点击屏幕右上角（通常是关闭按钮的位置）
-        if closed_count == 0:
-            try:
-                size = self.driver.get_window_size()
-                x = int(size['width'] * 0.9)
-                y = int(size['height'] * 0.1)
-                self.driver.execute_script("mobile: clickGesture", {
-                    "x": x, "y": y, "duration": 50
-                })
-                print(f"  ✓ 点击右上角关闭位置")
-                time.sleep(0.3)
-            except:
-                pass
-        
-        if closed_count == 0:
-            print("  ℹ️ 未发现弹窗")
-        
-        return True
-    
-    # ========== 🔧 新增：滚动到底部方法 ==========
-    def scroll_to_bottom(self, scrolls=3):
-        """滚动到页面底部"""
-        print(f"  📜 滚动到页面底部...")
-        try:
-            size = self.driver.get_window_size()
-            for i in range(scrolls):
-                self.driver.execute_script('mobile: scrollGesture', {
-                    'left': 100,
-                    'top': int(size['height'] * 0.7),
-                    'width': size['width'] - 200,
-                    'height': int(size['height'] * 0.2),
-                    'direction': 'down',
-                    'percent': 1.0
-                })
-                print(f"  ↓ 滚动 {i+1}/{scrolls}")
-                time.sleep(0.3)
-            print("  ✓ 已滚动到底部")
-            return True
-        except Exception as e:
-            print(f"  ⚠ 滚动失败: {e}")
-            return False
-
     def search_and_select_event(self):
         """搜索并选择演出 - 强化版"""
         print("\n步骤1: 搜索演出...")
-        
+
         # 等待首页加载
         time.sleep(2)
-        
+
         # 方案1: 点击搜索ViewGroup（最直接）
         try:
             search_area = self.driver.find_element(
@@ -236,7 +109,7 @@ class DamaiBot:
                 print("  ✗ 无法打开搜索")
                 self.quick_screenshot("search_failed")
                 return False
-        
+
         # 查找输入框并输入
         input_found = False
         input_box = None
@@ -244,7 +117,7 @@ class DamaiBot:
             (By.CLASS_NAME, "android.widget.EditText"),
             (AppiumBy.ANDROID_UIAUTOMATOR, 'new UiSelector().className("android.widget.EditText")'),
         ]
-        
+
         for by, value in input_selectors:
             try:
                 input_box = WebDriverWait(self.driver, 2).until(
@@ -257,12 +130,12 @@ class DamaiBot:
                 break
             except:
                 continue
-        
+
         if not input_found:
             print("  ✗ 未找到输入框")
             self.quick_screenshot("input_not_found")
             return False
-        
+
         # 【关键修复】直接按Enter键触发搜索，避免空格问题
         print("  按Enter触发搜索...")
         try:
@@ -272,35 +145,32 @@ class DamaiBot:
         except Exception as e:
             print(f"  ⚠ Enter键失败: {e}")
             time.sleep(1.5)
-        
+
         # 【方式1】尝试点击搜索结果列表中的第一项（最常见）
         print("  查找搜索结果...")
         try:
             # 等待搜索结果加载
             time.sleep(1)
-            
+
             # 查找RecyclerView（搜索结果通常在这里）
             result_list = self.driver.find_element(
                 By.CLASS_NAME, "androidx.recyclerview.widget.RecyclerView"
             )
-            
+
             # 获取第一个可点击的子元素
             first_result = result_list.find_element(
                 AppiumBy.ANDROID_UIAUTOMATOR,
                 'new UiSelector().clickable(true).index(0)'
             )
-            
+
             self.safe_click(first_result)
             print("  ✓ 点击第一个搜索结果")
-            # ========== 🔧 修改1：增加页面跳转等待时间 ==========
-            time.sleep(3)  # 原来是1.5秒，改为3秒
-            # 🔧 新增：确保详情页加载
-            self.wait_for_page_load(5)
+            time.sleep(1.5)
             return True
-            
+
         except Exception as e:
             print(f"  ⚠ 方式1失败: {e}")
-        
+
         # 【方式2】通过坐标点击（假设搜索结果在屏幕上半部分）
         print("  尝试通过坐标点击...")
         try:
@@ -308,24 +178,21 @@ class DamaiBot:
             size = self.driver.get_window_size()
             width = size['width']
             height = size['height']
-            
+
             # 点击屏幕上部中间位置（通常是第一个搜索结果）
             x = width // 2
             y = height // 4
-            
+
             self.driver.execute_script("mobile: clickGesture", {
                 "x": x, "y": y, "duration": 50
             })
             print(f"  ✓ 坐标点击: ({x}, {y})")
-            # ========== 🔧 修改2：增加页面跳转等待时间 ==========
-            time.sleep(3)  # 原来是1.5秒，改为3秒
-            # 🔧 新增：确保详情页加载
-            self.wait_for_page_load(5)
+            time.sleep(1.5)
             return True
-            
+
         except Exception as e:
             print(f"  ⚠ 方式2失败: {e}")
-        
+
         # 【方式3】查找任意可点击的TextView（宽松匹配）
         print("  尝试查找可点击TextView...")
         try:
@@ -333,22 +200,19 @@ class DamaiBot:
                 AppiumBy.ANDROID_UIAUTOMATOR,
                 'new UiSelector().className("android.widget.TextView").clickable(true)'
             )
-            
+
             # 点击第一个非空文本的TextView
             for tv in textviews[:5]:  # 只检查前5个
                 text = tv.text
                 if text and len(text) > 0:
                     self.safe_click(tv)
                     print(f"  ✓ 点击TextView: {text}")
-                    # ========== 🔧 修改3：增加页面跳转等待时间 ==========
-                    time.sleep(3)  # 原来是1.5秒，改为3秒
-                    # 🔧 新增：确保详情页加载
-                    self.wait_for_page_load(5)
+                    time.sleep(1.5)
                     return True
-                    
+
         except Exception as e:
             print(f"  ⚠ 方式3失败: {e}")
-        
+
         print("  ✗ 所有方式均失败")
         self.quick_screenshot("select_event_failed")
         return False
@@ -356,7 +220,7 @@ class DamaiBot:
     def select_city_and_date(self):
         """选择城市和日期 - 简化版"""
         print("\n步骤2: 选择城市和日期...")
-        
+
         # 尝试直接点击城市
         try:
             city_el = WebDriverWait(self.driver, 2).until(
@@ -388,7 +252,7 @@ class DamaiBot:
                     time.sleep(0.3)
             else:
                 print(f"  ⚠ 未找到城市，继续")
-        
+
         # 日期选择（可选）
         if self.config.date:
             try:
@@ -401,224 +265,50 @@ class DamaiBot:
                 time.sleep(0.5)
             except:
                 print(f"  ⚠ 未找到日期，跳过")
-        
+
         return True
 
     def click_buy_button(self):
-        """点击购买按钮 - 针对底部固定按钮优化"""
+        """点击购买按钮"""
         print("\n步骤3: 点击购买...")
-        
-        # 🔧 修改：等待详情页完全加载（增加到5秒 + 动态检查）
-        print("  ⏳ 等待详情页加载...")
-        time.sleep(5)  # 增加等待
-        self.wait_for_page_load(2)  # 额外加载等待
-        
-        # 🔧 新增：打印页面源码调试（生产时注释）
-        self.print_page_source(max_lines=20)
-        
-        # 🔧 新增：强制关闭弹窗
-        self.close_popups()
-        
-        # ========== 🔧 启用方案1：坐标点击屏幕底部中央（最直接，对固定按钮最有效） ==========
-        print("  🎯 方案1: 直接点击底部固定按钮位置...")
-        for retry in range(2):  # 🔧 新增：每个方案重试2次
-            try:
-                size = self.driver.get_window_size()
-                width = size['width']
-                height = size['height']
-                
-                # 点击屏幕最底部中央（固定按钮通常在这里）
-                x = width // 2
-                y = int(height * 0.95)  # 屏幕底部5%的位置
-                
-                self.driver.execute_script("mobile: clickGesture", {
-                    "x": x, "y": y, "duration": 50
-                })
-                print(f"  ✓ 坐标点击底部: ({x}, {y})")
-                time.sleep(2)  # 🔧 增加验证等待
-                
-                # 验证是否成功进入下一页（检查票价选择元素）
-                try:
-                    self.wait.until(EC.presence_of_element_located((By.ID, 'cn.damai:id/project_detail_perform_price_flowlayout')))
-                    print("  ✓ 成功进入票价选择页")
-                    return True
-                except:
-                    print(f"  ⚠ 点击后未进入票价页，重试 {retry+1}/2")
-                    time.sleep(1)
-            except Exception as e:
-                print(f"  ⚠ 方案1重试 {retry+1} 失败: {e}")
-        
-        # ========== 🔧 启用方案2：通过ID查找固定按钮 ==========
-        print("  🔍 方案2: 通过ID查找固定按钮...")
+
         buy_ids = [
             "cn.damai:id/trade_project_detail_purchase_status_bar_container_fl",
             "cn.damai:id/btn_buy",
-            "cn.damai:id/buy_button",
-            "cn.damai:id/btn_purchase",
-            "cn.damai:id/bottom_buy_btn",
-            "cn.damai:id/btn_buy_ticket",  # 新增
-            # 🔧 新增：基于 issue 的旧 ID（可能变体）
-            "cn.damai:id/tv_left_main_text",
         ]
-        
+
+        # 先尝试ID
         for buy_id in buy_ids:
-            for retry in range(2):
-                try:
-                    btn = WebDriverWait(self.driver, 1).until(  # 🔧 缩短超时到1秒
-                        EC.presence_of_element_located((By.ID, buy_id))
-                    )
-                    self.safe_click(btn)
-                    print(f"  ✓ 通过ID点击: {buy_id}")
-                    time.sleep(2)
-                    
-                    # 验证进入票价页
-                    try:
-                        self.wait.until(EC.presence_of_element_located((By.ID, 'cn.damai:id/project_detail_perform_price_flowlayout')))
-                        return True
-                    except:
-                        print(f"  ⚠ ID点击后未进入，重试 {retry+1}/2")
-                except:
-                    pass
-        
-        # ========== 🔧 改进方案3：通过文本查找"立即购票"（缩短超时 + 新文本） ==========
-        print("  🔍 方案3: 通过文本查找...")
-        text_patterns = [
-            'new UiSelector().text("立即购票")',
-            'new UiSelector().text("立即购买")',
-            'new UiSelector().text("立即预约")',
-            'new UiSelector().textContains("立即购票")',
-            'new UiSelector().textContains("立即购买")',
-            'new UiSelector().textContains("购票")',
-            'new UiSelector().textContains("购买")',
-            # 🔧 新增：常见变体（基于 APP 更新）
-            'new UiSelector().text("选座购买")',
-            'new UiSelector().textContains("选座")',
-            'new UiSelector().text("预约购票")',
-        ]
-        
-        for pattern in text_patterns:
-            for retry in range(2):
-                try:
-                    # 🔧 修改：用 WebDriverWait 包裹，超时1秒，避免 UiAutomator 卡死
-                    btn = WebDriverWait(self.driver, 1).until(
-                        lambda d: d.find_element(AppiumBy.ANDROID_UIAUTOMATOR, pattern)
-                    )
-                    self.safe_click(btn)
-                    print(f"  ✓ 通过文本点击: {pattern}")
-                    time.sleep(2)
-                    
-                    # 验证
-                    try:
-                        self.wait.until(EC.presence_of_element_located((By.ID, 'cn.damai:id/project_detail_perform_price_flowlayout')))
-                        return True
-                    except:
-                        print(f"  ⚠ 文本点击后未进入，重试 {retry+1}/2")
-                except TimeoutException:
-                    print(f"  ⚠ 文本 '{pattern}' 超时，跳过")
-                    break  # 超时直接跳下一个 pattern
-                except:
-                    pass
-        
-        # ========== 🔧 改进方案4：查找屏幕底部10%区域的所有可点击元素（限制数量） ==========
-        print("  🔍 方案4: 查找底部区域可点击元素...")
-        for retry in range(2):
             try:
-                # 🔧 新增：先轻微滚动，确保按钮可见
-                self.scroll_to_bottom(scrolls=1)
-                time.sleep(0.5)
-                
-                size = self.driver.get_window_size()
-                height = size['height']
-                
-                # 🔧 修改：用 find_elements，但限制前10个，避免枚举过多
-                buttons = self.driver.find_elements(
-                    AppiumBy.ANDROID_UIAUTOMATOR,
-                    'new UiSelector().clickable(true)'
-                )[:10]  # 只取前10个，减少负载
-                
-                bottom_buttons = []
-                for btn in buttons:
-                    try:
-                        rect = btn.rect
-                        if rect['y'] > height * 0.9:
-                            btn_text = getattr(btn, 'text', '') or '无文本'
-                            bottom_buttons.append((btn, btn_text, rect['y'], rect['height']))
-                    except:
-                        continue
-                
-                if bottom_buttons:
-                    bottom_buttons.sort(key=lambda x: (x[2], -x[3]), reverse=True)
-                    for btn, text, y, h in bottom_buttons[:3]:  # 🔧 减少到前3个
-                        print(f"  📍 尝试底部元素: '{text}' at y={y}, height={h}")
-                        try:
-                            self.safe_click(btn)
-                            print(f"  ✓ 点击成功")
-                            time.sleep(2)
-                            
-                            # 验证
-                            try:
-                                self.wait.until(EC.presence_of_element_located((By.ID, 'cn.damai:id/project_detail_perform_price_flowlayout')))
-                                return True
-                            except:
-                                print("  ⚠ 未进入，继续下一个")
-                        except:
-                            continue
-                else:
-                    print("  ⚠ 无底部按钮")
-            except Exception as e:
-                print(f"  ⚠ 方案4重试 {retry+1} 失败: {e}")
-        
-        # ========== 🔧 方案5/6 合并：额外等待后多位置坐标点击 ==========
-        print("  🔄 方案5/6: 多位置坐标重试...")
-        self.close_popups()  # 再关一次
-        time.sleep(2)
-        
-        size = self.driver.get_window_size()
-        width = size['width']
-        height = size['height']
-        
-        positions = [
-            (width // 2, int(height * 0.93)),
-            (width // 2, int(height * 0.90)),
-            (width // 2, int(height * 0.88)),
-            (int(width * 0.8), int(height * 0.95)),  # 🔧 新增：右偏位置
-        ]
-        
-        for x, y in positions:
-            try:
-                self.driver.execute_script("mobile: clickGesture", {
-                    "x": x, "y": y, "duration": 50
-                })
-                print(f"  📍 尝试位置: ({x}, {y})")
-                time.sleep(1.5)
-                
-                # 验证
-                try:
-                    self.wait.until(EC.presence_of_element_located((By.ID, 'cn.damai:id/project_detail_perform_price_flowlayout')))
-                    print("  ✓ 成功进入票价页")
-                    return True
-                except:
-                    pass
+                btn = WebDriverWait(self.driver, 2).until(
+                    EC.presence_of_element_located((By.ID, buy_id))
+                )
+                self.safe_click(btn)
+                print("  ✓ 购买按钮已点击")
+                time.sleep(1)
+                return True
             except:
                 continue
-        
-        print("  ✗ 未找到购买按钮（所有方案均失败）")
-        self.quick_screenshot("buy_button_not_found")
-        
-        # 保存页面源码
+
+        # 再尝试文本
         try:
-            with open("page_source_debug.xml", "w", encoding="utf-8") as f:
-                f.write(self.driver.page_source)
-            print("  ✓ 已保存页面源码到 page_source_debug.xml")
-        except Exception as e:
-            print(f"  ⚠ 保存失败: {e}")
-        
-        return False
+            btn = self.driver.find_element(
+                AppiumBy.ANDROID_UIAUTOMATOR,
+                'new UiSelector().textMatches(".*预约.*|.*购买.*|.*立即.*")'
+            )
+            self.safe_click(btn)
+            print("  ✓ 购买按钮已点击")
+            time.sleep(1)
+            return True
+        except:
+            print("  ✗ 未找到购买按钮")
+            self.quick_screenshot("buy_button_not_found")
+            return False
 
     def select_price(self):
         """选择票价"""
         print("\n步骤4: 选择票价...")
-        
+
         try:
             price_container = WebDriverWait(self.driver, 3).until(
                 EC.presence_of_element_located((
@@ -626,7 +316,7 @@ class DamaiBot:
                 ))
             )
             time.sleep(0.3)
-            
+
             target_price = price_container.find_element(
                 AppiumBy.ANDROID_UIAUTOMATOR,
                 f'new UiSelector().className("android.widget.FrameLayout").index({self.config.price_index})'
@@ -643,12 +333,12 @@ class DamaiBot:
     def select_quantity(self):
         """选择数量"""
         print("\n步骤5: 选择数量...")
-        
+
         clicks_needed = len(self.config.users) - 1
         if clicks_needed <= 0:
             print(f"  ⚠ 只需1张票，跳过")
             return True
-        
+
         try:
             plus_button = self.driver.find_element(By.ID, 'img_jia')
             for _ in range(clicks_needed):
@@ -663,7 +353,7 @@ class DamaiBot:
     def confirm_purchase(self):
         """确认购买"""
         print("\n步骤6: 确认购买...")
-        
+
         try:
             confirm_btn = WebDriverWait(self.driver, 2).until(
                 EC.presence_of_element_located((By.ID, "btn_buy_view"))
@@ -690,7 +380,7 @@ class DamaiBot:
     def select_users(self):
         """选择购票人"""
         print("\n步骤7: 选择购票人...")
-        
+
         success = False
         for i, user in enumerate(self.config.users):
             try:
@@ -706,17 +396,17 @@ class DamaiBot:
                 time.sleep(0.1)
             except:
                 print(f"  ✗ 未找到用户: {user}")
-        
+
         return success
 
     def submit_order(self):
         """提交订单"""
         print("\n步骤8: 提交订单...")
-        
+
         if not self.config.if_commit_order:
             print("  ⚠ 配置为不提交，跳过")
             return True
-        
+
         try:
             submit_btn = WebDriverWait(self.driver, 2).until(
                 EC.presence_of_element_located((
@@ -735,13 +425,12 @@ class DamaiBot:
     def run_ticket_grabbing(self):
         """执行抢票流程"""
         try:
-            print("\n" + "="*60)
+            print("\n" + "=" * 60)
             print("开始抢票流程")
-            print("="*60)
+            print("=" * 60)
             start_time = time.time()
 
             steps = [
-                ("关闭弹窗", self.close_popups),  # 🔧 新增：步骤3前关闭弹窗
                 ("搜索演出", self.search_and_select_event),
                 ("选择城市日期", self.select_city_and_date),
                 ("点击购买", self.click_buy_button),
@@ -758,9 +447,9 @@ class DamaiBot:
                     return False
 
             elapsed = time.time() - start_time
-            print("\n" + "="*60)
+            print("\n" + "=" * 60)
             print(f"✓ 流程完成！耗时: {elapsed:.1f}秒")
-            print("="*60)
+            print("=" * 60)
             return True
 
         except Exception as e:
@@ -771,17 +460,17 @@ class DamaiBot:
     def run_with_retry(self, max_retries=3):
         """带重试的抢票"""
         for attempt in range(max_retries):
-            print(f"\n{'='*60}")
+            print(f"\n{'=' * 60}")
             print(f"第 {attempt + 1}/{max_retries} 次尝试")
-            print(f"{'='*60}")
-            
+            print(f"{'=' * 60}")
+
             try:
                 if self.run_ticket_grabbing():
                     print("\n🎉 抢票成功！")
                     return True
             except Exception as e:
                 print(f"\n第 {attempt + 1} 次异常: {e}")
-            
+
             if attempt < max_retries - 1:
                 print(f"\n等待2秒后重试...")
                 time.sleep(2)

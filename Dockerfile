@@ -392,25 +392,15 @@ fi\n\
 echo "✅ 设备连接成功！准备启动抢票脚本..."\n\
 echo ""\n\
 \n\
-# 询问是否立即开始抢票\n\
-read -p "是否立即开始抢票任务？[Y/n]: " START_NOW\n\
-START_NOW=${START_NOW:-Y}\n\
+echo ""\n\
+echo "========================================"\n\
+echo "开始执行抢票任务（V2 版本）"\n\
+echo "========================================"\n\
+cd damai_appium && python3 damai_app_v2.py\n\
 \n\
-if [[ "$START_NOW" =~ ^[Yy]$ ]]; then\n\
-  echo ""\n\
-  echo "========================================"\n\
-  echo "开始执行抢票任务（V2 版本）"\n\
-  echo "========================================"\n\
-  cd damai_appium && python3 damai_app_v2.py\n\
-  \n\
-  # 脚本执行完毕后保持 Appium 运行\n\
-  echo ""\n\
-  echo "抢票脚本执行完毕"\n\
-else\n\
-  echo ""\n\
-  echo "已跳过抢票任务，Appium Server 保持运行"\n\
-  echo "你可以手动执行: docker exec -it <container_id> python3 damai_appium/damai_app_v2.py"\n\
-fi\n\
+# 脚本执行完毕后保持 Appium 运行\n\
+echo ""\n\
+echo "抢票脚本执行完毕"\n\
 \n\
 echo ""\n\
 echo "💡 提示: 如需重新配置连接，可手动删除配置文件:"\n\

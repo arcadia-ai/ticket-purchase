@@ -159,7 +159,7 @@ geckodriver.log
 chromedriver.log
 
 # Application specific
-config.json
+config.jsonc
 credentials.json
 *.cookie
 *.session
