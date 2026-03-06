@@ -1,4 +1,4 @@
-"""Entry point for the ticket purchase automation."""
+"""自动购票系统入口。"""
 import argparse
 import os
 import sys
@@ -12,57 +12,57 @@ from .log import setup_logging
 from .scheduler import wait_until
 from .workflow import TicketConfig, TicketWorkflow
 
-# Default paths
+# 默认路径
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 DEFAULT_CONFIG = BASE_DIR / "config" / "config.yaml"
 DEFAULT_ENV = BASE_DIR / "config" / ".env"
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Damai ticket purchase automation")
+    parser = argparse.ArgumentParser(description="大麦自动购票系统")
     parser.add_argument("--config", "-c", default=str(DEFAULT_CONFIG),
-                        help="Path to config.yaml")
+                        help="config.yaml 配置文件路径")
     parser.add_argument("--env", default=str(DEFAULT_ENV),
-                        help="Path to .env file")
+                        help=".env 环境文件路径")
     parser.add_argument("--now", action="store_true",
-                        help="Ignore target_time, run immediately")
+                        help="忽略定时设置，立即执行")
     args = parser.parse_args()
 
-    # Load environment
+    # 加载环境变量
     env_path = Path(args.env)
     if env_path.exists():
         load_dotenv(env_path)
 
-    # Setup logging
+    # 设置日志
     log_level = os.getenv("LOG_LEVEL", "INFO")
     setup_logging(log_level)
 
-    # Load config
+    # 加载配置
     config_path = Path(args.config)
     if not config_path.exists():
-        logger.error("Config file not found: {}", config_path)
-        logger.info("Copy config/config.example.yaml to config/config.yaml and edit it")
+        logger.error("配置文件未找到: {}", config_path)
+        logger.info("请复制 config/config.example.yaml 到 config/config.yaml 并编辑")
         sys.exit(1)
 
     config = TicketConfig.load(str(config_path))
-    logger.info("Config loaded: keyword='{}', city='{}', users={}",
+    logger.info("配置已加载: keyword='{}', city='{}', users={}",
                 config.keyword, config.city, config.users)
 
-    # Connect to device
+    # 连接设备
     device_ip = os.getenv("DEVICE_IP", "127.0.0.1")
     device_port = int(os.getenv("DEVICE_PORT", "5555"))
 
     try:
         device = init_device(device_ip, device_port)
     except ConnectionError as e:
-        logger.error("Device connection failed: {}", e)
+        logger.error("设备连接失败: {}", e)
         sys.exit(1)
 
-    # Wait for target time (unless --now)
+    # 等待目标时间（除非使用 --now）
     if not args.now:
         wait_until(config.target_time)
 
-    # Run workflow
+    # 执行工作流
     workflow = TicketWorkflow(device, config)
     success = workflow.run_with_retry()
 

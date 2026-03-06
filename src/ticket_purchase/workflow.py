@@ -1,4 +1,4 @@
-"""Core ticket grabbing workflow orchestration."""
+"""核心抢票工作流编排。"""
 import time
 from dataclasses import dataclass, field
 
@@ -14,7 +14,7 @@ from .recovery import RecoveryManager
 
 @dataclass
 class TicketConfig:
-    """Ticket purchase configuration loaded from YAML."""
+    """从 YAML 加载的购票配置。"""
     keyword: str
     city: str = ""
     date: str = ""
@@ -28,16 +28,16 @@ class TicketConfig:
     def load(path: str) -> "TicketConfig":
         with open(path, "r", encoding="utf-8") as f:
             data = yaml.safe_load(f)
-        # Filter to known fields, warn about unknown keys
+        # 过滤已知字段，警告未知键
         known = set(TicketConfig.__dataclass_fields__)
         unknown = set(data) - known
         if unknown:
-            logger.warning("Unknown config keys ignored: {}", unknown)
+            logger.warning("未知配置项已忽略: {}", unknown)
         return TicketConfig(**{k: v for k, v in data.items() if k in known})
 
 
 class TicketWorkflow:
-    """Orchestrates the complete ticket grabbing process."""
+    """编排完整的抢票流程。"""
 
     def __init__(self, device, config: TicketConfig):
         self.device = device
@@ -47,13 +47,13 @@ class TicketWorkflow:
         self.recovery = RecoveryManager(device)
 
     def run(self) -> bool:
-        """Execute the full ticket grabbing flow.
+        """执行完整的抢票流程。
 
-        Returns True if order submitted successfully.
+        订单提交成功返回 True。
         """
         logger.info("=" * 50)
-        logger.info("Starting ticket grabbing flow")
-        logger.info("Keyword: {}, City: {}, Users: {}",
+        logger.info("开始执行抢票流程")
+        logger.info("关键词: {}, 城市: {}, 购票人: {}",
                     self.config.keyword, self.config.city, self.config.users)
         logger.info("=" * 50)
 
@@ -62,67 +62,67 @@ class TicketWorkflow:
 
         try:
             steps = [
-                ("Launch app", self._step_launch_app),
-                ("Search event", self._step_search_event),
-                ("Select city/date", self._step_select_city_date),
-                ("Click buy", self._step_click_buy),
-                ("Select price", self._step_select_price),
-                ("Select quantity", self._step_select_quantity),
-                ("Confirm purchase", self._step_confirm_purchase),
-                ("Select users", self._step_select_users),
-                ("Submit order", self._step_submit_order),
+                ("启动应用", self._step_launch_app),
+                ("搜索演出", self._step_search_event),
+                ("选择城市/日期", self._step_select_city_date),
+                ("点击购买", self._step_click_buy),
+                ("选择票价", self._step_select_price),
+                ("选择数量", self._step_select_quantity),
+                ("确认购买", self._step_confirm_purchase),
+                ("选择购票人", self._step_select_users),
+                ("提交订单", self._step_submit_order),
             ]
 
             for step_name, step_func in steps:
                 logger.info("--- {} ---", step_name)
                 success = self.recovery.retry_step(step_func, step_name)
                 if not success:
-                    logger.error("Failed at step: {}", step_name)
+                    logger.error("步骤失败: {}", step_name)
                     take_screenshot(self.device, f"fail_{step_name.replace(' ', '_')}")
                     return False
                 take_screenshot(self.device, f"step_{step_name.replace(' ', '_')}")
 
             elapsed = time.time() - start_time
             logger.info("=" * 50)
-            logger.info("Flow completed in {:.1f}s", elapsed)
+            logger.info("流程完成，耗时 {:.1f}秒", elapsed)
             logger.info("=" * 50)
             return True
 
         except Exception as e:
-            logger.error("Unexpected error: {}", e)
+            logger.error("意外错误: {}", e)
             take_screenshot(self.device, "exception")
             return False
         finally:
             self.recovery.stop_popup_watcher()
 
     def run_with_retry(self) -> bool:
-        """Run the flow with overall retry logic."""
+        """带整体重试逻辑的流程执行。"""
         for attempt in range(1, self.config.max_retry + 1):
-            logger.info("Attempt {}/{}", attempt, self.config.max_retry)
+            logger.info("第 {}/{} 次尝试", attempt, self.config.max_retry)
             if self.run():
-                logger.info("Ticket grabbing succeeded!")
+                logger.info("抢票成功！")
                 return True
 
             if attempt < self.config.max_retry:
-                logger.info("Retrying in 2s...")
+                logger.info("2秒后重试...")
                 time.sleep(2)
-                # Press back to reset state
+                # 按返回键重置状态
                 self.recovery.press_back_to_recover()
 
-        logger.error("All {} attempts failed", self.config.max_retry)
+        logger.error("全部 {} 次尝试均失败", self.config.max_retry)
         return False
 
-    # === Step implementations ===
+    # === 步骤实现 ===
 
     def _step_launch_app(self) -> bool:
-        """Step: ensure Damai app is running."""
+        """步骤：确保大麦 App 正在运行。"""
         ensure_damai_running(self.device)
-        time.sleep(2)  # Wait for homepage
+        time.sleep(2)  # 等待首页加载
         return True
 
     def _step_search_event(self) -> bool:
-        """Step: search for the target event."""
-        # Click search area
+        """步骤：搜索目标演出。"""
+        # 点击搜索区域
         search = self.detector.find(
             "search area",
             resourceId="cn.damai:id/homepage_header_search",
@@ -133,26 +133,26 @@ class TicketWorkflow:
                 resourceId="cn.damai:id/homepage_header_search_btn",
             )
         if not search:
-            logger.error("Cannot find search entry")
+            logger.error("找不到搜索入口")
             return False
 
         self.executor.click(search)
         time.sleep(0.5)
 
-        # Input keyword
+        # 输入关键词
         input_box = self.detector.find("search input", className="android.widget.EditText")
         if not input_box:
-            logger.error("Cannot find search input")
+            logger.error("找不到搜索输入框")
             return False
 
         self.executor.input_text(input_box, self.config.keyword)
-        logger.info("Entered keyword: {}", self.config.keyword)
+        logger.info("已输入关键词: {}", self.config.keyword)
 
-        # Press Enter to search
+        # 按回车搜索
         self.executor.press_key("enter")
         time.sleep(1.5)
 
-        # Click first search result
+        # 点击第一个搜索结果
         result = self.detector.find(
             "first search result",
             resourceId="cn.damai:id/tv_word",
@@ -163,25 +163,25 @@ class TicketWorkflow:
             time.sleep(1.5)
             return True
 
-        # Fallback: click first item in RecyclerView
+        # 备用方案：点击 RecyclerView 中第一项
         result = self.detector.find(
             "search result item",
             className="androidx.recyclerview.widget.RecyclerView",
             timeout=2.0,
         )
         if result:
-            # Tap center of upper area (where first result usually is)
+            # 点击上方区域中心（第一个结果通常在此处）
             w, h = self.device.window_size()
             self.executor.tap(w // 2, h // 4)
             time.sleep(1.5)
             return True
 
-        logger.error("No search results found")
+        logger.error("未找到搜索结果")
         return False
 
     def _step_select_city_date(self) -> bool:
-        """Step: select city and date."""
-        # Select city
+        """步骤：选择城市和日期。"""
+        # 选择城市
         if self.config.city:
             city = self.detector.find(
                 f"city: {self.config.city}",
@@ -190,10 +190,10 @@ class TicketWorkflow:
             )
             if city:
                 self.executor.click(city)
-                logger.info("Selected city: {}", self.config.city)
+                logger.info("已选择城市: {}", self.config.city)
                 time.sleep(0.5)
             else:
-                # Try scrolling to find city
+                # 尝试滚动查找城市
                 for _ in range(2):
                     self.executor.swipe("up", scale=0.5)
                     time.sleep(0.3)
@@ -204,13 +204,13 @@ class TicketWorkflow:
                     )
                     if city:
                         self.executor.click(city)
-                        logger.info("Selected city after scroll: {}", self.config.city)
+                        logger.info("滚动后已选择城市: {}", self.config.city)
                         time.sleep(0.5)
                         break
                 else:
-                    logger.warning("City '{}' not found, continuing", self.config.city)
+                    logger.warning("未找到城市 '{}'，继续执行", self.config.city)
 
-        # Select date (optional)
+        # 选择日期（可选）
         if self.config.date:
             date_el = self.detector.find(
                 f"date: {self.config.date}",
@@ -219,18 +219,18 @@ class TicketWorkflow:
             )
             if date_el:
                 self.executor.click(date_el)
-                logger.info("Selected date: {}", self.config.date)
+                logger.info("已选择日期: {}", self.config.date)
                 time.sleep(0.5)
             else:
-                logger.warning("Date '{}' not found, skipping", self.config.date)
+                logger.warning("未找到日期 '{}'，跳过", self.config.date)
 
         return True
 
     def _step_click_buy(self) -> bool:
-        """Step: click the buy/purchase button."""
+        """步骤：点击购买按钮。"""
         time.sleep(1)
 
-        # Try known button IDs
+        # 尝试已知按钮 ID
         buy_ids = [
             "cn.damai:id/trade_project_detail_purchase_status_bar_container_fl",
             "cn.damai:id/btn_buy",
@@ -239,21 +239,21 @@ class TicketWorkflow:
             btn = self.detector.find(f"buy button ({rid})", resourceId=rid, timeout=2.0)
             if btn:
                 self.executor.click(btn)
-                logger.info("Clicked buy button")
+                logger.info("已点击购买按钮")
                 time.sleep(1)
                 return True
 
-        # Try text matching
+        # 尝试文本匹配
         buy_texts = ["立即购买", "选座购买", "立即预约", "购买"]
         for text in buy_texts:
             btn = self.detector.find(f"buy: {text}", textContains=text, timeout=1.0)
             if btn:
                 self.executor.click(btn)
-                logger.info("Clicked buy button: {}", text)
+                logger.info("已点击购买按钮: {}", text)
                 time.sleep(1)
                 return True
 
-        # Last resort: tap bottom center (buy button is usually at bottom)
+        # 最后手段：点击底部中心（购买按钮通常在底部）
         w, h = self.device.window_size()
         self.executor.tap(w // 2, int(h * 0.95))
         logger.warning("Tapped bottom center as buy button fallback")

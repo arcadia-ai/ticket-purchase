@@ -1,25 +1,25 @@
-"""Logging and screenshot management."""
+"""日志与截图管理。"""
 import os
 from datetime import datetime
 from pathlib import Path
 
 from loguru import logger
 
-# Base directories
+# 基础目录
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 LOG_DIR = BASE_DIR / "logs"
 SCREENSHOT_DIR = BASE_DIR / "screenshots"
 
 
 def setup_logging(level: str = "INFO"):
-    """Configure loguru: console (colored) + rotating file."""
+    """配置 loguru：控制台（彩色）+ 滚动日志文件。"""
     LOG_DIR.mkdir(exist_ok=True)
     SCREENSHOT_DIR.mkdir(exist_ok=True)
 
-    # Remove default handler
+    # 移除默认处理器
     logger.remove()
 
-    # Console: colored, concise
+    # 控制台：彩色、简洁
     import sys
     logger.add(
         sink=sys.stderr,
@@ -28,7 +28,7 @@ def setup_logging(level: str = "INFO"):
         colorize=True,
     )
 
-    # File: rotating, detailed
+    # 文件：滚动、详细
     logger.add(
         LOG_DIR / "ticket_{time:YYYY-MM-DD}.log",
         level="DEBUG",
@@ -38,11 +38,11 @@ def setup_logging(level: str = "INFO"):
         encoding="utf-8",
     )
 
-    logger.info("Logging initialized, level={}", level)
+    logger.info("日志已初始化，级别={}", level)
 
 
 def take_screenshot(device, name: str = "debug") -> str | None:
-    """Capture screenshot from device and save to screenshots dir."""
+    """从设备截图并保存到截图目录。"""
     try:
         SCREENSHOT_DIR.mkdir(exist_ok=True)
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -50,8 +50,8 @@ def take_screenshot(device, name: str = "debug") -> str | None:
         filepath = SCREENSHOT_DIR / filename
         image = device.screenshot()
         image.save(str(filepath))
-        logger.info("Screenshot saved: {}", filepath)
+        logger.info("截图已保存: {}", filepath)
         return str(filepath)
     except Exception as e:
-        logger.warning("Screenshot failed: {}", e)
+        logger.warning("截图失败: {}", e)
         return None
