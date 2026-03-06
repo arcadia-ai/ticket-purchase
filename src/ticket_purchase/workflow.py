@@ -39,6 +39,21 @@ class TicketConfig:
 class TicketWorkflow:
     """编排完整的抢票流程。"""
 
+    # 页面状态定义：步骤名 -> 页面特征关键词
+    PAGE_SIGNATURES = {
+        "首页": ["首页", "推荐", "搜索演出"],
+        "搜索页": ["搜索", "取消", "历史"],
+        "搜索结果": ["搜索结果", "演出", "场次"],
+        "演出详情": ["预定", "预约", "立即购买", "场次", "票档"],
+        "城市选择": ["城市", "全国", "北京", "上海"],
+        "观演人弹窗": ["观演人", "预选", "知道了"],
+        "场次选择": ["场次", "有票", "预售", "售罄"],
+        "票档选择": ["票档", "价格", "¥", "缺货"],
+        "数量选择": ["数量", "张", "+", "-"],
+        "确认订单": ["确认", "订单", "提交", "支付"],
+        "支付页面": ["支付", "付款", "微信", "支付宝"],
+    }
+
     def __init__(self, device, config: TicketConfig):
         self.device = device
         self.config = config
@@ -46,6 +61,7 @@ class TicketWorkflow:
         self.executor = Executor(device)
         # 共享 LLM client 给 recovery 模块
         self.recovery = RecoveryManager(device, llm_client=self.detector._llm)
+        self._current_step_index = 0
 
     def run(self) -> bool:
         """执行完整的抢票流程。
@@ -76,8 +92,16 @@ class TicketWorkflow:
                 ("提交订单", self._step_submit_order),
             ]
 
-            for step_name, step_func in steps:
+            for idx, (step_name, step_func) in enumerate(steps):
+                self._current_step_index = idx
                 logger.info("--- {} ---", step_name)
+
+                # 检测当前页面状态，确保与预期步骤同步
+                if not self._verify_page_state(step_name, steps):
+                    logger.error("页面状态异常，无法继续执行: {}", step_name)
+                    take_screenshot(self.device, f"page_mismatch_{step_name.replace(' ', '_')}")
+                    return False
+
                 success = self.recovery.retry_step(step_func, step_name)
                 if not success:
                     logger.error("步骤失败: {}", step_name)
@@ -114,6 +138,147 @@ class TicketWorkflow:
 
         logger.error("全部 {} 次尝试均失败", self.config.max_retry)
         return False
+
+    # === 页面状态检测 ===
+
+    def _verify_page_state(self, expected_step: str, all_steps: list, max_retries: int = 3) -> bool:
+        """验证当前页面状态是否与预期步骤匹配。
+
+        如果页面滞后，等待页面加载；如果页面超前，可能需要返回。
+        """
+        for attempt in range(max_retries):
+            current_page = self._detect_current_page()
+            if not current_page:
+                logger.debug("无法识别当前页面，继续执行")
+                return True
+
+            logger.debug("当前页面: {}, 预期步骤: {}", current_page, expected_step)
+
+            # 检查页面是否匹配预期步骤
+            if self._page_matches_step(current_page, expected_step):
+                return True
+
+            # 检查是否页面滞后（还在之前的步骤）
+            step_names = [s[0] for s in all_steps]
+            current_step_idx = self._current_step_index
+
+            # 查找当前页面对应的步骤索引
+            page_step_idx = self._find_step_for_page(current_page, step_names)
+
+            if page_step_idx is not None and page_step_idx < current_step_idx:
+                # 页面滞后，等待页面加载
+                logger.warning("页面滞后: 当前在 '{}', 等待加载到 '{}'",
+                             current_page, expected_step)
+                time.sleep(1)
+                continue
+            elif page_step_idx is not None and page_step_idx > current_step_idx:
+                # 页面超前，可能需要跳过某些步骤
+                logger.info("页面已超前到 '{}'，跳过中间步骤", current_page)
+                return True
+
+            # 如果无法确定，继续执行
+            return True
+
+        logger.warning("页面状态验证超时，继续执行")
+        return True
+
+    def _detect_current_page(self) -> str | None:
+        """使用 LLM 检测当前页面状态。"""
+        if not (self.detector._llm and self.detector._llm.enabled):
+            return None
+
+        import json
+
+        prompt = """分析以下 Android UI XML，判断当前页面处于抢票流程的哪个阶段。
+
+可能的页面状态：
+- 首页: 大麦首页，有搜索框、推荐内容
+- 搜索页: 搜索输入页面，有输入框、历史记录
+- 搜索结果: 搜索结果列表
+- 演出详情: 演出详情页，显示演出信息、预定按钮
+- 城市选择: 城市/观演地选择列表
+- 观演人弹窗: 预选观演人的弹窗
+- 场次选择: 选择演出场次
+- 票档选择: 选择票价档位
+- 数量选择: 选择购票数量
+- 确认订单: 订单确认页面
+- 支付页面: 支付/付款页面
+- 未知: 无法识别
+
+只输出 JSON:
+{"page": "页面状态", "confidence": 0.0-1.0, "reason": "判断依据"}
+
+XML (末尾是最上层):
+"""
+        try:
+            xml_full = self.device.dump_hierarchy()
+            # 取末尾部分（弹窗等覆盖层）+ 中间部分（主要内容）
+            if len(xml_full) > 30000:
+                xml = xml_full[-25000:]
+            else:
+                xml = xml_full
+
+            response = self.detector._llm.chat(prompt + xml)
+            if not response:
+                return None
+
+            json_str = response.strip()
+            if "```json" in json_str:
+                json_str = json_str.split("```json")[1].split("```")[0].strip()
+            elif "```" in json_str:
+                json_str = json_str.split("```")[1].split("```")[0].strip()
+
+            result = json.loads(json_str)
+            logger.debug("LLM 页面识别: {}", result)
+
+            if result.get("confidence", 0) >= 0.6:
+                return result.get("page", "未知")
+
+        except Exception as e:
+            logger.debug("LLM 页面识别失败: {}", e)
+
+        return None
+
+    def _page_matches_step(self, page: str, step: str) -> bool:
+        """判断页面状态是否与步骤匹配。"""
+        # 页面状态到步骤的映射
+        page_step_map = {
+            "首页": ["启动应用"],
+            "搜索页": ["搜索演出"],
+            "搜索结果": ["搜索演出"],
+            "演出详情": ["选择城市", "处理观演人弹窗", "点击预定"],
+            "城市选择": ["选择城市"],
+            "观演人弹窗": ["处理观演人弹窗"],
+            "场次选择": ["选择场次"],
+            "票档选择": ["选择票档"],
+            "数量选择": ["选择张数"],
+            "确认订单": ["点击确定", "提交订单"],
+            "支付页面": ["提交订单"],
+        }
+
+        valid_steps = page_step_map.get(page, [])
+        return step in valid_steps or page == "未知"
+
+    def _find_step_for_page(self, page: str, step_names: list) -> int | None:
+        """查找页面对应的步骤索引。"""
+        page_step_map = {
+            "首页": "启动应用",
+            "搜索页": "搜索演出",
+            "搜索结果": "搜索演出",
+            "演出详情": "点击预定",
+            "城市选择": "选择城市",
+            "观演人弹窗": "处理观演人弹窗",
+            "场次选择": "选择场次",
+            "票档选择": "选择票档",
+            "数量选择": "选择张数",
+            "确认订单": "点击确定",
+            "支付页面": "提交订单",
+        }
+
+        step_name = page_step_map.get(page)
+        if step_name and step_name in step_names:
+            return step_names.index(step_name)
+        return None
 
     # === 步骤实现 ===
 
