@@ -156,7 +156,18 @@ class Detector:
     def _find_with_llm(self, desc: str, timeout: float = 5.0, **hints) -> u2.UiObject | None:
         """Use LLM to analyze page XML and find element."""
         try:
-            xml = self.device.dump_hierarchy()[:15000]
+            xml_full = self.device.dump_hierarchy()
+            xml = xml_full[:30000]  # Increase limit for complex pages
+
+            # Debug: check if hint resourceId exists in XML
+            if hints.get("resourceId"):
+                rid = hints["resourceId"]
+                if rid in xml_full:
+                    logger.debug("resourceId '{}' found in XML (pos: {})", rid, xml_full.find(rid))
+                else:
+                    logger.debug("resourceId '{}' NOT in XML, skipping LLM", rid)
+                    return None
+
             # Build hint from kwargs (resourceId, text, etc.)
             hint_str = ""
             if hints:
