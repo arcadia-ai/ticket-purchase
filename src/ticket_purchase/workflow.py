@@ -1,4 +1,5 @@
 """核心抢票工作流编排。"""
+import json
 import time
 from dataclasses import dataclass, field
 
@@ -10,6 +11,271 @@ from .executor import Executor
 from .log import take_screenshot
 from .monitor import ensure_damai_running, wait_for_element
 from .recovery import RecoveryManager
+
+
+# LLM 自主代理的系统提示
+AUTONOMOUS_AGENT_PROMPT = """你是大麦 App 抢票助手，负责自动完成购票流程。
+
+## 购票流程
+1. 启动大麦 App
+2. 搜索演出（输入关键词，点击搜索结果）
+3. 选择城市/观演地（如需要）
+4. 处理弹窗（如"预选观演人"弹窗，可选择观演人或点"知道了"跳过）
+5. 点击"预定"/"预约"按钮
+6. 选择场次（选择显示"有票"或"预售"的场次）
+7. 选择票档（选择有票的价格档位，避开"缺货登记"）
+8. 选择数量（点击+增加票数）
+9. 点击"确定"
+10. 提交订单
+
+## 购票配置
+- 关键词: {keyword}
+- 城市: {city}
+- 场次偏好: {session}
+- 观演人: {users}
+- 票档索引: {price_index}
+- 是否提交: {if_commit_order}
+
+## 你的任务
+分析当前页面 XML，判断当前处于哪个步骤，然后决定下一步操作。
+
+## 操作类型
+- click: 点击元素（提供定位方式）
+- tap: 点击坐标（提供 x, y）
+- input: 输入文本（提供元素定位和文本）
+- swipe: 滑动（提供方向 up/down/left/right）
+- wait: 等待页面加载（提供秒数）
+- done: 流程完成
+- failed: 流程失败（说明原因）
+
+## 输出格式（只输出 JSON）
+{{
+    "current_step": "当前处于的步骤",
+    "page_analysis": "页面分析（简短）",
+    "action": "click|tap|input|swipe|wait|done|failed",
+    "selector": {{"strategy": "resourceId|text|textContains", "value": "值"}},
+    "tap_position": {{"x": 0, "y": 0}},
+    "input_text": "要输入的文本",
+    "swipe_direction": "up|down|left|right",
+    "wait_seconds": 1,
+    "reason": "操作原因"
+}}
+
+## 注意事项
+- 优先使用 resourceId 定位（最稳定）
+- 状态标签（如"预售"）不可点击，要点击其左侧的场次日期
+- 弹窗覆盖层在 XML 末尾，优先处理弹窗
+- 如果元素不可见，尝试滑动查找
+- 如果卡住超过 3 次，返回 failed
+
+当前页面 XML:
+"""
+
+
+class AutonomousWorkflow:
+    """LLM 自主控制的抢票流程。"""
+
+    def __init__(self, device, config: "TicketConfig"):
+        self.device = device
+        self.config = config
+        self.detector = Detector(device)
+        self.executor = Executor(device)
+        self.recovery = RecoveryManager(device, llm_client=self.detector._llm)
+        self._step_count = 0
+        self._max_steps = 50  # 防止死循环
+        self._stuck_count = 0
+        self._last_action = None
+
+    def run(self) -> bool:
+        """执行自主抢票流程。"""
+        if not (self.detector._llm and self.detector._llm.enabled):
+            logger.error("自主模式需要启用 LLM")
+            return False
+
+        logger.info("=" * 50)
+        logger.info("自主模式启动")
+        logger.info("关键词: {}, 城市: {}, 观演人: {}",
+                    self.config.keyword, self.config.city or "自动", self.config.users)
+        logger.info("=" * 50)
+
+        # 启动 App
+        ensure_damai_running(self.device)
+        time.sleep(2)
+
+        start_time = time.time()
+
+        while self._step_count < self._max_steps:
+            self._step_count += 1
+            logger.info("--- 步骤 {} ---", self._step_count)
+
+            # 获取 LLM 决策
+            decision = self._get_llm_decision()
+            if not decision:
+                logger.error("LLM 决策失败")
+                self._stuck_count += 1
+                if self._stuck_count >= 3:
+                    logger.error("连续失败 3 次，终止流程")
+                    return False
+                time.sleep(1)
+                continue
+
+            self._stuck_count = 0
+            action = decision.get("action", "")
+            current_step = decision.get("current_step", "未知")
+            reason = decision.get("reason", "")
+
+            logger.info("当前步骤: {} | 操作: {} | 原因: {}", current_step, action, reason)
+
+            # 执行操作
+            if action == "done":
+                elapsed = time.time() - start_time
+                logger.info("=" * 50)
+                logger.info("流程完成！耗时 {:.1f}秒", elapsed)
+                logger.info("=" * 50)
+                take_screenshot(self.device, "autonomous_done")
+                return True
+
+            elif action == "failed":
+                logger.error("流程失败: {}", reason)
+                take_screenshot(self.device, "autonomous_failed")
+                return False
+
+            elif action == "click":
+                self._execute_click(decision)
+
+            elif action == "tap":
+                self._execute_tap(decision)
+
+            elif action == "input":
+                self._execute_input(decision)
+
+            elif action == "swipe":
+                self._execute_swipe(decision)
+
+            elif action == "wait":
+                wait_time = decision.get("wait_seconds", 1)
+                logger.debug("等待 {}秒", wait_time)
+                time.sleep(wait_time)
+
+            else:
+                logger.warning("未知操作: {}", action)
+
+            # 检测重复操作（可能卡住了）
+            current_action = f"{action}:{decision.get('selector', decision.get('tap_position', ''))}"
+            if current_action == self._last_action:
+                self._stuck_count += 1
+                if self._stuck_count >= 3:
+                    logger.warning("重复操作 3 次，尝试其他方式")
+            else:
+                self._stuck_count = 0
+            self._last_action = current_action
+
+            # 截图（每 5 步或关键步骤）
+            if self._step_count % 5 == 0 or action in ["click", "input"]:
+                take_screenshot(self.device, f"auto_step_{self._step_count}")
+
+            time.sleep(0.3)
+
+        logger.error("超过最大步骤数 {}，终止流程", self._max_steps)
+        return False
+
+    def _get_llm_decision(self) -> dict | None:
+        """获取 LLM 的下一步决策。"""
+        try:
+            # 获取页面 XML（取末尾部分，弹窗在那里）
+            xml_full = self.device.dump_hierarchy()
+            if len(xml_full) > 40000:
+                xml = xml_full[-35000:]
+            else:
+                xml = xml_full
+
+            # 构建 prompt
+            prompt = AUTONOMOUS_AGENT_PROMPT.format(
+                keyword=self.config.keyword,
+                city=self.config.city or "不限",
+                session=self.config.session or "第一个可购买",
+                users=", ".join(self.config.users) if self.config.users else "未指定",
+                price_index=self.config.price_index,
+                if_commit_order="是" if self.config.if_commit_order else "否（仅测试）",
+            ) + xml
+
+            response = self.detector._llm.chat(prompt)
+            if not response:
+                return None
+
+            # 提取 JSON
+            json_str = response.strip()
+            if "```json" in json_str:
+                json_str = json_str.split("```json")[1].split("```")[0].strip()
+            elif "```" in json_str:
+                json_str = json_str.split("```")[1].split("```")[0].strip()
+
+            result = json.loads(json_str)
+            logger.debug("LLM 决策: {}", result)
+            return result
+
+        except Exception as e:
+            logger.error("LLM 决策解析失败: {}", e)
+            return None
+
+    def _execute_click(self, decision: dict):
+        """执行点击操作。"""
+        selector = decision.get("selector", {})
+        strategy = selector.get("strategy", "")
+        value = selector.get("value", "")
+
+        if not strategy or not value:
+            logger.warning("点击缺少选择器信息")
+            return
+
+        element = self.device(**{strategy: value})
+        if element.exists(timeout=2.0):
+            element.click()
+            logger.debug("点击: {}={}", strategy, value)
+            time.sleep(0.3)
+        else:
+            logger.warning("元素不存在: {}={}", strategy, value)
+
+    def _execute_tap(self, decision: dict):
+        """执行坐标点击。"""
+        pos = decision.get("tap_position", {})
+        x = pos.get("x", 0)
+        y = pos.get("y", 0)
+
+        if x and y:
+            self.executor.tap(x, y)
+            logger.debug("点击坐标: ({}, {})", x, y)
+            time.sleep(0.3)
+
+    def _execute_input(self, decision: dict):
+        """执行输入操作。"""
+        selector = decision.get("selector", {})
+        strategy = selector.get("strategy", "")
+        value = selector.get("value", "")
+        text = decision.get("input_text", "")
+
+        if not text:
+            logger.warning("输入缺少文本")
+            return
+
+        if strategy and value:
+            element = self.device(**{strategy: value})
+            if element.exists(timeout=2.0):
+                element.set_text(text)
+                logger.debug("输入: {} -> {}", value, text)
+        else:
+            # 直接输入（可能已经聚焦）
+            self.device.send_keys(text)
+            logger.debug("直接输入: {}", text)
+
+        time.sleep(0.2)
+
+    def _execute_swipe(self, decision: dict):
+        """执行滑动操作。"""
+        direction = decision.get("swipe_direction", "up")
+        self.executor.swipe(direction, scale=0.5)
+        logger.debug("滑动: {}", direction)
+        time.sleep(0.5)
 
 
 @dataclass

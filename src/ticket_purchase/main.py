@@ -10,7 +10,7 @@ from loguru import logger
 from .connection import init_device
 from .log import setup_logging
 from .scheduler import wait_until
-from .workflow import TicketConfig, TicketWorkflow
+from .workflow import AutonomousWorkflow, TicketConfig, TicketWorkflow
 
 # 默认路径
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
@@ -26,6 +26,8 @@ def main():
                         help=".env 环境文件路径")
     parser.add_argument("--now", action="store_true",
                         help="忽略定时设置，立即执行")
+    parser.add_argument("--auto", action="store_true",
+                        help="自主模式：LLM 完全自主控制流程")
     args = parser.parse_args()
 
     # 加载环境变量
@@ -63,8 +65,15 @@ def main():
         wait_until(config.target_time)
 
     # 执行工作流
-    workflow = TicketWorkflow(device, config)
-    success = workflow.run_with_retry()
+    if args.auto:
+        # 自主模式：LLM 完全控制
+        logger.info("启动自主模式（LLM 控制）")
+        workflow = AutonomousWorkflow(device, config)
+        success = workflow.run()
+    else:
+        # 传统模式：代码控制流程
+        workflow = TicketWorkflow(device, config)
+        success = workflow.run_with_retry()
 
     sys.exit(0 if success else 1)
 
