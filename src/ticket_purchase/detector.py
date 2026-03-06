@@ -161,9 +161,19 @@ class Detector:
 
             response_text = self._llm.chat(prompt)
             if not response_text:
+                logger.debug("LLM returned empty response for '{}'", desc)
                 return None
 
-            result = json.loads(response_text)
+            logger.debug("LLM raw response for '{}': {}", desc, response_text[:500])
+
+            # Extract JSON from response (handle markdown code blocks)
+            json_str = response_text.strip()
+            if "```json" in json_str:
+                json_str = json_str.split("```json")[1].split("```")[0].strip()
+            elif "```" in json_str:
+                json_str = json_str.split("```")[1].split("```")[0].strip()
+
+            result = json.loads(json_str)
 
             if result["strategy"] == "NOT_FOUND" or result.get("confidence", 0) < 0.3:
                 logger.debug("LLM couldn't find '{}' (confidence: {})", desc, result.get("confidence", 0))
