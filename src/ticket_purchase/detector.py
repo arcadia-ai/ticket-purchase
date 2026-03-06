@@ -6,17 +6,17 @@ import uiautomator2 as u2
 from loguru import logger
 
 # LLM prompt template for element detection
-_LLM_PROMPT = """Analyze this Android UI XML and find the best locator for: "{desc}"
+_LLM_PROMPT = """分析以下 Android UI XML，找到最佳定位器来定位: "{desc}"
+{hint}
+定位策略优先级:
+1. resourceId (最稳定)
+2. text 或 textContains (文本匹配)
+3. className + index (类名索引)
 
-Prioritize:
-1. resourceId (most stable)
-2. text or textContains
-3. className with index
+只输出 JSON，不要其他内容:
+{{"strategy": "resourceId"|"text"|"textContains"|"className", "value": "具体值", "confidence": 0.0-1.0}}
 
-Output ONLY valid JSON:
-{{"strategy": "resourceId"|"text"|"textContains"|"className", "value": "the value", "confidence": 0.0-1.0}}
-
-If not found: {{"strategy": "NOT_FOUND", "value": "", "confidence": 0}}
+找不到时: {{"strategy": "NOT_FOUND", "value": "", "confidence": 0}}
 
 XML:
 {xml}"""
@@ -121,7 +121,7 @@ class Detector:
         """
         # Strategy 1: LLM priority (when enabled)
         if self._llm.enabled:
-            element = self._find_with_llm(desc, timeout)
+            element = self._find_with_llm(desc, timeout, **kwargs)
             if element:
                 return element
 
@@ -153,11 +153,16 @@ class Detector:
         """Check if an element exists without full wait."""
         return bool(self.device(**kwargs).wait(timeout=timeout))
 
-    def _find_with_llm(self, desc: str, timeout: float = 5.0) -> u2.UiObject | None:
+    def _find_with_llm(self, desc: str, timeout: float = 5.0, **hints) -> u2.UiObject | None:
         """Use LLM to analyze page XML and find element."""
         try:
             xml = self.device.dump_hierarchy()[:15000]
-            prompt = _LLM_PROMPT.format(desc=desc, xml=xml)
+            # Build hint from kwargs (resourceId, text, etc.)
+            hint_str = ""
+            if hints:
+                hint_parts = [f"{k}={v}" for k, v in hints.items()]
+                hint_str = f"\n参考提示（可能的选择器）: {', '.join(hint_parts)}"
+            prompt = _LLM_PROMPT.format(desc=desc, hint=hint_str, xml=xml)
 
             response_text = self._llm.chat(prompt)
             if not response_text:
