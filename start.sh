@@ -54,6 +54,14 @@ if ! command -v adb &>/dev/null; then
     exit 1
 fi
 
+# Load environment variables from .env file
+if [ -f "$ENV_PATH" ]; then
+    echo "Loading environment from $ENV_PATH"
+    set -a  # Export all variables
+    source "$ENV_PATH"
+    set +a
+fi
+
 # Connect device via ADB
 DEVICE_IP="${DEVICE_IP:-127.0.0.1}"
 DEVICE_PORT="${DEVICE_PORT:-5555}"
