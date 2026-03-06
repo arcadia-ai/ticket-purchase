@@ -7,21 +7,23 @@ import time
 import uiautomator2 as u2
 from loguru import logger
 
-# 常见弹窗关闭按钮匹配模式（仅用于 LLM 不可用时的回退）
+# 常见弹窗关闭按钮匹配模式（LLM 失败时的回退）
 POPUP_DISMISS_PATTERNS = [
     # 弹窗专用关闭按钮 (resourceId 最可靠)
     {"resourceId": "cn.damai:id/btn_close"},
     {"resourceId": "cn.damai:id/iv_close"},
     {"resourceId": "cn.damai:id/dialog_close"},
     {"resourceId": "cn.damai:id/close_btn"},
-    # 弹窗文本按钮（较通用）
+    # 明确的弹窗文本按钮
     {"text": "我知道了"},
     {"text": "知道了"},
     {"text": "暂不"},
     {"text": "跳过"},
     {"text": "不再提醒"},
     {"text": "以后再说"},
+    {"text": "稍后再说"},
     {"textContains": "同意并继续"},
+    # 注意：不要加 "取消"、"关闭" 等通用词
 ]
 
 # LLM 弹窗检测 prompt
@@ -124,7 +126,15 @@ class RecoveryManager:
     def _llm_detect_popup(self) -> dict | None:
         """使用 LLM 分析页面是否有弹窗。"""
         try:
-            xml = self.device.dump_hierarchy()[:20000]
+            xml_full = self.device.dump_hierarchy()
+            # 弹窗通常在 XML 末尾（作为覆盖层），截取后半部分
+            xml_len = len(xml_full)
+            if xml_len > 25000:
+                # 取末尾 20000 字符 + 开头 5000 字符（包含基本结构）
+                xml = xml_full[:5000] + "\n...[中间省略]...\n" + xml_full[-20000:]
+            else:
+                xml = xml_full
+            logger.debug("弹窗检测 XML: 总长={}, 截取={}", xml_len, len(xml))
             prompt = _POPUP_DETECT_PROMPT.format(xml=xml)
 
             response = self._llm.chat(prompt)
