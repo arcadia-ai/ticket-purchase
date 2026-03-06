@@ -27,23 +27,26 @@ POPUP_DISMISS_PATTERNS = [
 ]
 
 # LLM 弹窗检测 prompt
-_POPUP_DETECT_PROMPT = """分析以下 Android UI XML，判断当前页面是否有弹窗(Dialog/Popup)需要关闭。
+_POPUP_DETECT_PROMPT = """分析以下 Android UI XML，判断是否有弹窗需要关闭。
+
+重要：Android XML 中，**最后出现的元素在最上层**（后绘制覆盖先绘制）。
+弹窗作为覆盖层，通常出现在 XML 末尾部分。请重点分析 XML 末尾的元素。
 
 弹窗特征：
-- 通常有半透明遮罩层
-- 居中显示的对话框
-- 包含"关闭"、"取消"、"我知道了"、"同意"等按钮
-- 非页面主要内容区域
+- XML 末尾出现的 FrameLayout/LinearLayout 包含按钮
+- 包含 "知道了"、"我知道了"、"确定"、"取消"、"关闭"、"同意" 等文本的按钮
+- 可能有 dialog、popup、alert 等关键词的 resourceId
+- bounds 坐标显示居中或覆盖大部分屏幕
 
-注意区分：
-- 搜索页面的"取消"按钮不是弹窗
-- 页面顶部的返回按钮不是弹窗
-- 正常的功能按钮不是弹窗
+不是弹窗的情况：
+- 搜索页面顶部的"取消"按钮（通常在 XML 开头）
+- 页面正常的功能按钮
+- 底部导航栏
 
 只输出 JSON:
-{{"has_popup": true/false, "dismiss_strategy": "resourceId"|"text"|"none", "dismiss_value": "具体值或空", "reason": "简短说明"}}
+{{"has_popup": true/false, "dismiss_strategy": "resourceId"|"text"|"none", "dismiss_value": "用于定位关闭按钮的值", "reason": "简短说明"}}
 
-XML:
+XML (末尾部分是最上层):
 {xml}"""
 
 DAMAI_PACKAGE = "cn.damai"
@@ -127,14 +130,13 @@ class RecoveryManager:
         """使用 LLM 分析页面是否有弹窗。"""
         try:
             xml_full = self.device.dump_hierarchy()
-            # 弹窗通常在 XML 末尾（作为覆盖层），截取后半部分
             xml_len = len(xml_full)
-            if xml_len > 25000:
-                # 取末尾 20000 字符 + 开头 5000 字符（包含基本结构）
-                xml = xml_full[:5000] + "\n...[中间省略]...\n" + xml_full[-20000:]
+            # 弹窗在最上层，对应 XML 末尾。只取末尾 20000 字符
+            if xml_len > 20000:
+                xml = xml_full[-20000:]
             else:
                 xml = xml_full
-            logger.debug("弹窗检测 XML: 总长={}, 截取={}", xml_len, len(xml))
+            logger.debug("弹窗检测 XML: 总长={}, 取末尾={}", xml_len, len(xml))
             prompt = _POPUP_DETECT_PROMPT.format(xml=xml)
 
             response = self._llm.chat(prompt)
