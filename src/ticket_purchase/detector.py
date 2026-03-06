@@ -119,17 +119,17 @@ class Detector:
         Returns:
             UiObject if found, None otherwise.
         """
-        # Strategy 1: u2 native selectors
+        # Strategy 1: LLM priority (when enabled)
+        if self._llm.enabled:
+            element = self._find_with_llm(desc, timeout)
+            if element:
+                return element
+
+        # Strategy 2: u2 native selectors (fallback)
         if kwargs:
             element = self.device(**kwargs)
             if element.wait(timeout=timeout):
                 logger.debug("Found '{}' via native selector: {}", desc, kwargs)
-                return element
-
-        # Strategy 2: LLM fallback (Ollama or DeepSeek)
-        if self._llm.enabled:
-            element = self._find_with_llm(desc, timeout)
-            if element:
                 return element
 
         logger.warning("Element not found: '{}'", desc)
