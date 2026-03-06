@@ -10,6 +10,7 @@ from loguru import logger
 from .connection import init_device
 from .log import setup_logging
 from .scheduler import wait_until
+from .quick_grab import QuickGrabWorkflow
 from .workflow import TicketConfig, TicketWorkflow
 
 # 默认路径
@@ -26,6 +27,8 @@ def main():
                         help=".env 环境文件路径")
     parser.add_argument("--now", action="store_true",
                         help="忽略定时设置，立即执行")
+    parser.add_argument("--quick", action="store_true",
+                        help="快速抢票模式：手动进入购票页后，自动循环抢票")
     args = parser.parse_args()
 
     # 加载环境变量
@@ -57,6 +60,19 @@ def main():
     except ConnectionError as e:
         logger.error("设备连接失败: {}", e)
         sys.exit(1)
+
+    # 快速抢票模式
+    if args.quick:
+        logger.info("快速抢票模式")
+        logger.info("请确保已手动进入购票页面并预填观演人")
+
+        # 等待目标时间
+        if not args.now:
+            wait_until(config.target_time)
+
+        workflow = QuickGrabWorkflow(device)
+        success = workflow.run(max_loops=1000, loop_delay=0.05)
+        sys.exit(0 if success else 1)
 
     # 等待目标时间（除非使用 --now）
     if not args.now:

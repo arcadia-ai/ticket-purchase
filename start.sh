@@ -13,6 +13,7 @@ fi
 
 # Parse arguments
 RUN_NOW=""
+RUN_QUICK=""
 USE_DOCKER=false
 CONFIG_PATH="config/config.yaml"
 ENV_PATH="config/.env"
@@ -21,6 +22,7 @@ while [[ $# -gt 0 ]]; do
     case $1 in
         --docker) USE_DOCKER=true; shift ;;
         --now) RUN_NOW="--now"; shift ;;
+        --quick) RUN_QUICK="--quick"; shift ;;
         --config) CONFIG_PATH="$2"; shift 2 ;;
         *) shift ;;
     esac
@@ -81,7 +83,12 @@ adb devices
 
 # Run the automation
 echo ""
-echo "Starting ticket automation..."
+if [ -n "$RUN_QUICK" ]; then
+    echo "Starting quick grab mode..."
+    echo "Make sure you have manually entered the ticket purchase page!"
+else
+    echo "Starting ticket automation..."
+fi
 # Set PYTHONPATH for local (non-installed) development
 export PYTHONPATH="${PYTHONPATH:+$PYTHONPATH:}$(dirname "$0")/src"
-python -m ticket_purchase.main --config "$CONFIG_PATH" --env "$ENV_PATH" $RUN_NOW
+python -m ticket_purchase.main --config "$CONFIG_PATH" --env "$ENV_PATH" $RUN_NOW $RUN_QUICK
