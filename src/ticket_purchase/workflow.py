@@ -260,12 +260,20 @@ class AutonomousWorkflow:
 
             # 智能截取：优先保留包含关键元素的部分
             if xml_len <= 60000:
-                # 60KB 以内直接用完整 XML
                 xml = xml_full
             else:
-                # 超长 XML：取开头 25000 + 末尾 25000
-                xml = xml_full[:25000] + "\n\n...[中间省略]...\n\n" + xml_full[-25000:]
-                logger.debug("XML 截取: 总长={}, 取开头+末尾各25000", xml_len)
+                # 尝试找到关键词位置，截取其周围内容
+                keyword_pos = xml_full.find(self.config.keyword)
+                if keyword_pos > 0:
+                    # 以关键词为中心，截取前后各 20000 字符 + 末尾 15000（弹窗）
+                    start = max(0, keyword_pos - 20000)
+                    end = min(xml_len, keyword_pos + 20000)
+                    xml = xml_full[start:end] + "\n\n...[末尾弹窗层]...\n\n" + xml_full[-15000:]
+                    logger.debug("XML 截取: 总长={}, 关键词位置={}, 截取[{}:{}]+末尾", xml_len, keyword_pos, start, end)
+                else:
+                    # 没找到关键词，取开头 30000 + 末尾 20000
+                    xml = xml_full[:30000] + "\n\n...[中间省略]...\n\n" + xml_full[-20000:]
+                    logger.debug("XML 截取: 总长={}, 取开头30000+末尾20000", xml_len)
 
             # 构建 prompt
             prompt = AUTONOMOUS_AGENT_PROMPT.format(
