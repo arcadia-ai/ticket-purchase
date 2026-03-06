@@ -1,0 +1,10 @@
+# Damai ticket purchase configuration
+keyword: "演出名称"        # Search keyword
+city: "城市名"             # City name
+date: ""                   # Date (e.g. "10.04"), empty to skip
+price_index: 0             # Price tier index (0-based, low to high)
+users:                     # Ticket purchasers (must be pre-added in Damai account)
+  - "姓名"
+target_time: ""            # Target time (e.g. "2026-03-10 10:00:00"), empty for immediate
+if_commit_order: true      # Whether to auto-submit order
+max_retry: 3               # Max retry attempts for the whole flow

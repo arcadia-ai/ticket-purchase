@@ -9,7 +9,7 @@
 | 组件 | 技术选型 | 说明 |
 |------|----------|------|
 | 自动化框架 | uiautomator2 (ATX) | 直连设备，无需 Appium Server |
-| 智能识别(可选) | Ollama LLM | 动态分析 XML 定位元素，默认关闭 |
+| 智能识别(可选) | Ollama / DeepSeek LLM | 动态分析 XML 定位元素，默认关闭，支持多后端 |
 | 包管理 | uv | 快速 Python 包管理器 |
 | 日志 | loguru | 控制台 + 文件 + 截图 |
 | 配置 | .env + YAML | 设备配置与业务配置分离 |
@@ -26,7 +26,7 @@ Python 主控程序 (main.py)
     │     └── 页面状态判断 / 元素等待
     ├── 智能识别模块 (detector.py)
     │     ├── u2 原生选择器 (resourceId > text > xpath)
-    │     └── Ollama LLM 回退 (可选)
+    │     └── LLM 回退 (可选: Ollama / DeepSeek)
     ├── 操作执行模块 (executor.py)
     │     └── tap / click / swipe / input
     ├── 定时调度模块 (scheduler.py)
@@ -88,8 +88,11 @@ ticket-purchase/
 
 ### detector.py — 元素识别
 - 统一接口：`find(desc, **kwargs)` / `find_all(desc, **kwargs)`
-- 优先级：resourceId → text/description → className → Ollama
-- Ollama 通过 `OLLAMA_ENABLED` 环境变量控制
+- 优先级：resourceId → text/description → className → LLM 回退
+- LLM 通过 `LLM_PROVIDER` 环境变量控制，支持两种后端：
+  - `ollama` — 本地/内网部署的 Ollama 服务
+  - `deepseek` — DeepSeek API（兼容 OpenAI SDK）
+- 内部通过 `LLMClient` 统一抽象层封装，对上层透明
 
 ### executor.py — 操作执行
 - `tap(x, y)` — 坐标点击
@@ -125,9 +128,19 @@ ticket-purchase/
 ```
 DEVICE_IP=192.168.1.100
 DEVICE_PORT=5555
-OLLAMA_ENABLED=false
+
+# LLM 智能识别（可选，留空禁用）
+LLM_PROVIDER=              # "ollama" 或 "deepseek"
+
+# Ollama 配置（LLM_PROVIDER=ollama 时生效）
 OLLAMA_HOST=http://192.168.123.200:11434
 OLLAMA_MODEL=gpt-oss:120b-cloud
+
+# DeepSeek 配置（LLM_PROVIDER=deepseek 时生效）
+DEEPSEEK_API_KEY=
+DEEPSEEK_BASE_URL=https://api.deepseek.com
+DEEPSEEK_MODEL=deepseek-chat
+
 LOG_LEVEL=INFO
 ```
 
@@ -150,9 +163,24 @@ max_retry: 3
 - 镜像大小：~300MB
 - 网络模式：host（直连局域网设备）
 
+## 国内网络适配
+- **apt**: 阿里云镜像 (mirrors.aliyun.com)
+- **PyPI**: 清华镜像 (pypi.tuna.tsinghua.edu.cn)，在 pyproject.toml `[tool.uv]` 和 Dockerfile 中均已配置
+- **uv 安装**: ghfast.top 代理 GitHub 下载，失败回退官方源
+- **NTP**: 优先使用 ntp.aliyun.com / ntp.tencent.com
+
 ---
 
 ## 变更日志
+
+### v2.1.0 (2026-03-06) — LLM 多后端 & 国内适配
+- **新增**: DeepSeek API 支持（兼容 OpenAI SDK），通过 `LLM_PROVIDER=deepseek` 启用
+- **重构**: detector.py 新增 `LLMClient` 统一抽象层，替代原 Ollama 硬编码
+- **重构**: `OLLAMA_ENABLED` 环境变量改为 `LLM_PROVIDER`（"ollama" / "deepseek" / 留空）
+- **新增**: pyproject.toml 可选依赖组 `deepseek`（openai SDK）和 `llm`（全部 LLM 依赖）
+- **优化**: Dockerfile apt 使用阿里云镜像
+- **优化**: Dockerfile uv 安装使用 ghfast.top 代理（国内 GitHub 加速）
+- **优化**: Dockerfile / pyproject.toml PyPI 使用清华镜像源
 
 ### v2.0.0 (2026-03-06) — 架构重构
 - **Breaking**: 从 Appium + Selenium 迁移到 uiautomator2 (ATX)
