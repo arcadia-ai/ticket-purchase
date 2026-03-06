@@ -502,38 +502,104 @@ XML:
         return True
 
     def _step_select_price(self) -> bool:
-        """Step: select ticket price tier."""
-        price_container = self.detector.find(
-            "price container",
-            resourceId="cn.damai:id/project_detail_perform_price_flowlayout",
-            timeout=3.0,
-        )
-        if not price_container:
-            logger.warning("Price container not found, may already be selected")
-            return True
+        """步骤：选择票档。
 
-        time.sleep(0.3)
+        票档规则：
+        - 只显示金额 = 可购买
+        - 显示"缺货登记" = 不可购买
+        """
+        time.sleep(0.5)
 
-        # Find price options by FrameLayout children
-        prices = self.detector.find_all(
-            "price options",
-            resourceId="cn.damai:id/project_detail_perform_price_flowlayout",
+        # 优先使用 LLM 智能选择
+        if self.detector._llm and self.detector._llm.enabled:
+            result = self._llm_select_price()
+            if result:
+                return True
+
+        # 回退方案：避开"缺货登记"的票档
+        # 查找所有票档元素，排除包含"缺货"的
+        unavailable = self.detector.find(
+            "unavailable price",
+            textContains="缺货",
+            timeout=1.0,
         )
-        # Use index-based selection within the container
-        # u2 doesn't easily support child indexing, so use XPath
-        try:
-            xpath = f'//android.widget.FrameLayout[@resource-id="cn.damai:id/project_detail_perform_price_flowlayout"]/android.widget.FrameLayout[{self.config.price_index + 1}]'
-            target = self.device.xpath(xpath)
-            if target.exists:
-                target.click()
-                logger.info("Selected price index: {}", self.config.price_index)
+
+        # 尝试点击第一个可见的价格（纯数字/金额）
+        price_patterns = ["¥", "元", "价"]
+        for pattern in price_patterns:
+            price = self.detector.find(
+                f"price with {pattern}",
+                textContains=pattern,
+                timeout=1.0,
+            )
+            if price:
+                self.executor.click(price)
+                logger.info("已选择票档")
                 time.sleep(0.3)
                 return True
-        except Exception as e:
-            logger.debug("XPath price selection failed: {}", e)
 
-        logger.warning("Price selection failed, continuing anyway")
+        logger.warning("票档选择失败，继续执行")
         return True
+
+    def _llm_select_price(self) -> bool:
+        """使用 LLM 智能选择可购买的票档。"""
+        import json
+
+        prompt = f"""分析以下 Android UI XML，找到票档/价格选择列表。
+
+任务：找到一个可以购买的票档。
+{'优先选择第 ' + str(self.config.price_index + 1) + ' 个票档（如果可购买）。' if self.config.price_index > 0 else '选择第一个可购买的票档。'}
+
+票档规则：
+- 只显示金额（如 "¥680"、"680元"）= 可购买
+- 显示 "缺货登记"、"缺货"、"售罄"、"暂无" = 不可购买
+- 显示 "预售"、"有票" = 可购买
+
+请找到可购买的票档，返回定位信息。
+
+只输出 JSON:
+{{"found": true/false, "strategy": "resourceId"|"text"|"textContains", "value": "定位值", "price_info": "票档描述如¥680", "reason": "说明"}}
+
+XML:
+"""
+        try:
+            xml_full = self.device.dump_hierarchy()
+            xml = xml_full[:35000] if len(xml_full) > 35000 else xml_full
+
+            response = self.detector._llm.chat(prompt + xml)
+            if not response:
+                return False
+
+            json_str = response.strip()
+            if "```json" in json_str:
+                json_str = json_str.split("```json")[1].split("```")[0].strip()
+            elif "```" in json_str:
+                json_str = json_str.split("```")[1].split("```")[0].strip()
+
+            result = json.loads(json_str)
+            logger.debug("LLM 票档选择: {}", result)
+
+            if not result.get("found", False):
+                logger.warning("LLM 未找到可购买票档: {}", result.get("reason", ""))
+                return False
+
+            strategy = result.get("strategy", "")
+            value = result.get("value", "")
+            price_info = result.get("price_info", "")
+
+            if strategy and value:
+                selector = {strategy: value}
+                element = self.device(**selector)
+                if element.exists(timeout=2.0):
+                    element.click()
+                    logger.info("LLM 已选择票档: {} ({})", price_info, selector)
+                    time.sleep(0.3)
+                    return True
+
+        except Exception as e:
+            logger.debug("LLM 票档选择失败: {}", e)
+
+        return False
 
     def _step_select_quantity(self) -> bool:
         """Step: adjust ticket quantity."""
