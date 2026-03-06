@@ -15,14 +15,14 @@ from .recovery import RecoveryManager
 @dataclass
 class TicketConfig:
     """从 YAML 加载的购票配置。"""
-    keyword: str
-    city: str = ""
-    date: str = ""
-    price_index: int = 0
-    users: list = field(default_factory=lambda: [])
-    target_time: str = ""
-    if_commit_order: bool = True
-    max_retry: int = 3
+    keyword: str  # 搜索关键词
+    city: str = ""  # 观演城市，如 "长沙"、"北京"
+    session: str = ""  # 场次关键词，如 "周六" "20:00"，为空则选第一个可购买场次
+    price_index: int = 0  # 票档索引，0 为第一档
+    users: list = field(default_factory=lambda: [])  # 观演人姓名列表
+    target_time: str = ""  # 开抢时间，为空则立即执行
+    if_commit_order: bool = True  # 是否提交订单
+    max_retry: int = 3  # 最大重试次数
 
     @staticmethod
     def load(path: str) -> "TicketConfig":
@@ -54,8 +54,9 @@ class TicketWorkflow:
         """
         logger.info("=" * 50)
         logger.info("开始执行抢票流程")
-        logger.info("关键词: {}, 城市: {}, 购票人: {}",
-                    self.config.keyword, self.config.city, self.config.users)
+        logger.info("关键词: {}, 城市: {}, 场次: {}, 购票人: {}",
+                    self.config.keyword, self.config.city or "自动",
+                    self.config.session or "自动", self.config.users)
         logger.info("=" * 50)
 
         start_time = time.time()
@@ -65,12 +66,13 @@ class TicketWorkflow:
             steps = [
                 ("启动应用", self._step_launch_app),
                 ("搜索演出", self._step_search_event),
-                ("选择城市/日期", self._step_select_city_date),
-                ("点击购买", self._step_click_buy),
-                ("选择票价", self._step_select_price),
-                ("选择数量", self._step_select_quantity),
-                ("确认购买", self._step_confirm_purchase),
-                ("选择购票人", self._step_select_users),
+                ("选择城市", self._step_select_city),
+                ("处理观演人弹窗", self._step_handle_viewer_popup),
+                ("点击预定", self._step_click_buy),
+                ("选择场次", self._step_select_session),
+                ("选择票档", self._step_select_price),
+                ("选择张数", self._step_select_quantity),
+                ("点击确定", self._step_confirm_purchase),
                 ("提交订单", self._step_submit_order),
             ]
 
@@ -180,52 +182,290 @@ class TicketWorkflow:
         logger.error("未找到搜索结果")
         return False
 
-    def _step_select_city_date(self) -> bool:
-        """步骤：选择城市和日期。"""
-        # 选择城市
-        if self.config.city:
+    def _step_select_city(self) -> bool:
+        """步骤：选择观演城市。"""
+        if not self.config.city:
+            logger.info("未配置城市，跳过城市选择")
+            return True
+
+        time.sleep(1)
+
+        # 查找城市
+        city = self.detector.find(
+            f"city: {self.config.city}",
+            textContains=self.config.city,
+            timeout=3.0,
+        )
+        if city:
+            self.executor.click(city)
+            logger.info("已选择城市: {}", self.config.city)
+            time.sleep(0.5)
+            return True
+
+        # 尝试滚动查找
+        for _ in range(3):
+            self.executor.swipe("left", scale=0.5)  # 城市列表可能是横向滚动
+            time.sleep(0.3)
             city = self.detector.find(
                 f"city: {self.config.city}",
                 textContains=self.config.city,
-                timeout=3.0,
+                timeout=1.0,
             )
             if city:
                 self.executor.click(city)
-                logger.info("已选择城市: {}", self.config.city)
+                logger.info("滑动后已选择城市: {}", self.config.city)
                 time.sleep(0.5)
-            else:
-                # 尝试滚动查找城市
-                for _ in range(2):
-                    self.executor.swipe("up", scale=0.5)
-                    time.sleep(0.3)
-                    city = self.detector.find(
-                        f"city: {self.config.city}",
-                        textContains=self.config.city,
-                        timeout=1.0,
-                    )
-                    if city:
-                        self.executor.click(city)
-                        logger.info("滚动后已选择城市: {}", self.config.city)
-                        time.sleep(0.5)
-                        break
-                else:
-                    logger.warning("未找到城市 '{}'，继续执行", self.config.city)
+                return True
 
-        # 选择日期（可选）
-        if self.config.date:
-            date_el = self.detector.find(
-                f"date: {self.config.date}",
-                textContains=self.config.date,
+        # 使用 LLM 查找
+        if self.detector._llm and self.detector._llm.enabled:
+            result = self._llm_select_city()
+            if result:
+                return True
+
+        logger.warning("未找到城市 '{}'，继续执行", self.config.city)
+        return True
+
+    def _llm_select_city(self) -> bool:
+        """使用 LLM 智能选择城市。"""
+        import json
+
+        prompt = f"""分析以下 Android UI XML，找到城市/观演地选择列表。
+
+任务：找到并定位城市 "{self.config.city}"。
+
+城市选择特征：
+- 通常是横向或纵向列表
+- 显示城市名称，如 "北京"、"上海"、"长沙" 等
+- 可能有 "全国" 或其他筛选选项
+
+只输出 JSON:
+{{"found": true/false, "strategy": "resourceId"|"text"|"textContains", "value": "定位值", "reason": "说明"}}
+
+XML:
+"""
+        try:
+            xml_full = self.device.dump_hierarchy()
+            xml = xml_full[:30000] if len(xml_full) > 30000 else xml_full
+
+            response = self.detector._llm.chat(prompt + xml)
+            if not response:
+                return False
+
+            json_str = response.strip()
+            if "```json" in json_str:
+                json_str = json_str.split("```json")[1].split("```")[0].strip()
+            elif "```" in json_str:
+                json_str = json_str.split("```")[1].split("```")[0].strip()
+
+            result = json.loads(json_str)
+            logger.debug("LLM 城市选择: {}", result)
+
+            if not result.get("found", False):
+                return False
+
+            strategy = result.get("strategy", "")
+            value = result.get("value", "")
+
+            if strategy and value:
+                selector = {strategy: value}
+                element = self.device(**selector)
+                if element.exists(timeout=2.0):
+                    element.click()
+                    logger.info("LLM 已选择城市: {} ({})", self.config.city, selector)
+                    time.sleep(0.5)
+                    return True
+
+        except Exception as e:
+            logger.debug("LLM 城市选择失败: {}", e)
+
+        return False
+
+    def _step_handle_viewer_popup(self) -> bool:
+        """步骤：处理预填观演人弹窗。
+
+        弹窗有两个选项：
+        1. 预选实名观演人 - 选择观演人后点击确定
+        2. 知道了 - 跳过预选
+        """
+        time.sleep(1)
+
+        # 检查是否有预填观演人弹窗
+        popup_title = self.detector.find(
+            "viewer popup",
+            textContains="观演人",
+            timeout=3.0,
+        )
+
+        if not popup_title:
+            # 没有弹窗，可能已经处理过或不需要
+            logger.info("未检测到观演人弹窗，继续执行")
+            return True
+
+        # 如果配置了购票人，尝试预选
+        if self.config.users:
+            # 点击 "预选实名观演人" 按钮
+            preselect_btn = self.detector.find(
+                "preselect button",
+                textContains="预选",
                 timeout=2.0,
             )
-            if date_el:
-                self.executor.click(date_el)
-                logger.info("已选择日期: {}", self.config.date)
+            if preselect_btn:
+                self.executor.click(preselect_btn)
+                logger.info("点击预选实名观演人")
                 time.sleep(0.5)
-            else:
-                logger.warning("未找到日期 '{}'，跳过", self.config.date)
 
+                # 选择配置的观演人
+                selected = 0
+                for user_name in self.config.users:
+                    user_el = self.detector.find(
+                        f"viewer: {user_name}",
+                        textContains=user_name,
+                        timeout=2.0,
+                    )
+                    if user_el:
+                        self.executor.click(user_el)
+                        logger.info("已选择观演人: {}", user_name)
+                        selected += 1
+                        time.sleep(0.2)
+                    else:
+                        logger.warning("未找到观演人: {}", user_name)
+
+                # 点击确定
+                if selected > 0:
+                    confirm = self.detector.find(
+                        "confirm viewer",
+                        text="确定",
+                        timeout=2.0,
+                    )
+                    if confirm:
+                        self.executor.click(confirm)
+                        logger.info("确认观演人选择")
+                        time.sleep(0.5)
+                        return True
+
+        # 回退：点击 "知道了" 跳过
+        skip_btn = self.detector.find(
+            "skip viewer popup",
+            text="知道了",
+            timeout=2.0,
+        )
+        if skip_btn:
+            self.executor.click(skip_btn)
+            logger.info("跳过观演人预选")
+            time.sleep(0.5)
+            return True
+
+        # 尝试 LLM 处理
+        if self.detector._llm and self.detector._llm.enabled:
+            logger.info("使用 LLM 处理观演人弹窗")
+            # 弹窗监听会处理
+            time.sleep(2)
+            return True
+
+        logger.warning("观演人弹窗处理失败，继续执行")
         return True
+
+    def _step_select_session(self) -> bool:
+        """步骤：选择场次（显示有票/预售的场次）。"""
+        time.sleep(1)
+
+        # 使用 LLM 智能选择场次
+        if self.detector._llm and self.detector._llm.enabled:
+            result = self._llm_select_session()
+            if result:
+                return True
+
+        # 回退方案：查找包含 "有票" 或 "预售" 的场次
+        for status_text in ["有票", "预售"]:
+            session = self.detector.find(
+                f"available session ({status_text})",
+                textContains=status_text,
+                timeout=2.0,
+            )
+            if session:
+                # 如果配置了场次关键词，检查是否匹配
+                if self.config.session:
+                    # 需要找到同时包含状态和场次关键词的
+                    session = self.detector.find(
+                        f"session: {self.config.session}",
+                        textContains=self.config.session,
+                        timeout=1.0,
+                    )
+                    if session:
+                        self.executor.click(session)
+                        logger.info("已选择场次: {}", self.config.session)
+                        time.sleep(0.5)
+                        return True
+                else:
+                    # 点击找到的有票场次
+                    self.executor.click(session)
+                    logger.info("已选择可购买场次 ({})", status_text)
+                    time.sleep(0.5)
+                    return True
+
+        logger.warning("未找到可购买场次，继续执行")
+        return True
+
+    def _llm_select_session(self) -> bool:
+        """使用 LLM 智能选择场次。"""
+        import json
+
+        prompt = f"""分析以下 Android UI XML，找到演唱会/演出的场次列表。
+
+任务：找到一个可以购买的场次（显示"有票"或"预售"状态的）。
+{f'优先选择包含 "{self.config.session}" 的场次。' if self.config.session else '选择第一个可购买的场次。'}
+
+场次特征：
+- 通常显示日期时间信息（如 "03月15日 周六 20:00"）
+- 旁边有状态标签："有票"、"预售"、"即将开售"、"已售罄"
+- 只有 "有票" 和 "预售" 状态的才能购买
+
+只输出 JSON:
+{{"found": true/false, "strategy": "resourceId"|"text"|"textContains", "value": "定位值", "session_info": "场次描述", "reason": "说明"}}
+
+XML:
+"""
+        try:
+            xml_full = self.device.dump_hierarchy()
+            # 场次通常在页面中部
+            xml = xml_full[:40000] if len(xml_full) > 40000 else xml_full
+
+            response = self.detector._llm.chat(prompt + xml)
+            if not response:
+                return False
+
+            # 提取 JSON
+            json_str = response.strip()
+            if "```json" in json_str:
+                json_str = json_str.split("```json")[1].split("```")[0].strip()
+            elif "```" in json_str:
+                json_str = json_str.split("```")[1].split("```")[0].strip()
+
+            result = json.loads(json_str)
+            logger.debug("LLM 场次选择: {}", result)
+
+            if not result.get("found", False):
+                logger.warning("LLM 未找到可购买场次: {}", result.get("reason", ""))
+                return False
+
+            strategy = result.get("strategy", "")
+            value = result.get("value", "")
+            session_info = result.get("session_info", "")
+
+            if strategy and value:
+                selector = {strategy: value}
+                element = self.device(**selector)
+                if element.exists(timeout=2.0):
+                    element.click()
+                    logger.info("LLM 已选择场次: {} ({})", session_info, selector)
+                    time.sleep(0.5)
+                    return True
+
+        except Exception as e:
+            logger.debug("LLM 场次选择失败: {}", e)
+
+        return False
 
     def _step_click_buy(self) -> bool:
         """步骤：点击购买按钮。"""
@@ -339,29 +579,6 @@ class TicketWorkflow:
 
         logger.warning("No confirm button found, page may have auto-advanced")
         return True
-
-    def _step_select_users(self) -> bool:
-        """Step: select ticket purchasers."""
-        if not self.config.users:
-            logger.warning("No users configured")
-            return True
-
-        selected = 0
-        for user_name in self.config.users:
-            user_el = self.detector.find(
-                f"user: {user_name}",
-                textContains=user_name,
-                timeout=2.0,
-            )
-            if user_el:
-                self.executor.click(user_el)
-                logger.info("Selected user: {}", user_name)
-                selected += 1
-                time.sleep(0.1)
-            else:
-                logger.error("User not found: {}", user_name)
-
-        return selected > 0
 
     def _step_submit_order(self) -> bool:
         """Step: submit the final order."""
