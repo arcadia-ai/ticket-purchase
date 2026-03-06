@@ -569,23 +569,23 @@ XML:
                 timeout=2.0,
             )
             if session:
-                # 如果配置了场次关键词，检查是否匹配
-                if self.config.session:
-                    # 需要找到同时包含状态和场次关键词的
-                    session = self.detector.find(
-                        f"session: {self.config.session}",
-                        textContains=self.config.session,
-                        timeout=1.0,
-                    )
-                    if session:
-                        self.executor.click(session)
-                        logger.info("已选择场次: {}", self.config.session)
+                # 获取元素位置，点击其左侧区域（场次信息通常在状态标签左边）
+                try:
+                    bounds = session.info.get("bounds", {})
+                    if bounds:
+                        # 点击状态标签左侧 200 像素处（场次条目区域）
+                        x = max(bounds.get("left", 0) - 200, 100)
+                        y = (bounds.get("top", 0) + bounds.get("bottom", 0)) // 2
+                        logger.debug("场次状态位置: {}, 点击偏移位置: ({}, {})", bounds, x, y)
+                        self.executor.tap(x, y)
+                        logger.info("已选择可购买场次 ({})", status_text)
                         time.sleep(0.5)
                         return True
-                else:
-                    # 点击找到的有票场次
+                except Exception as e:
+                    logger.debug("获取场次位置失败: {}", e)
+                    # 尝试直接点击
                     self.executor.click(session)
-                    logger.info("已选择可购买场次 ({})", status_text)
+                    logger.info("已点击场次状态 ({})", status_text)
                     time.sleep(0.5)
                     return True
 
@@ -606,8 +606,13 @@ XML:
 - 旁边有状态标签："有票"、"预售"、"即将开售"、"已售罄"
 - 只有 "有票" 和 "预售" 状态的才能购买
 
+重要：返回场次条目的**可点击区域**，不是状态标签本身！
+- 优先返回场次的日期/时间文本（如 "03月15日"）
+- 或者返回场次条目的父容器 resourceId
+- 不要返回 "有票"、"预售" 等状态标签
+
 只输出 JSON:
-{{"found": true/false, "strategy": "resourceId"|"text"|"textContains", "value": "定位值", "session_info": "场次描述", "reason": "说明"}}
+{{"found": true/false, "strategy": "resourceId"|"text"|"textContains", "value": "场次日期或容器ID，不是状态标签", "session_info": "场次描述", "reason": "说明"}}
 
 XML:
 """
