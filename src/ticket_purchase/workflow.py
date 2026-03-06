@@ -141,14 +141,22 @@ class TicketWorkflow:
 
     # === 页面状态检测 ===
 
+    # 可选步骤（没有对应弹窗/页面时自动跳过）
+    OPTIONAL_STEPS = ["处理观演人弹窗"]
+
     def _verify_page_state(self, expected_step: str, all_steps: list, max_retries: int = 3) -> bool:
         """验证当前页面状态是否与预期步骤匹配。
 
-        如果页面滞后，等待页面加载；如果页面超前，可能需要返回。
+        如果页面滞后，等待页面加载；如果页面超前，跳过中间步骤。
         """
+        # 可选步骤不做页面验证，由步骤内部处理
+        if expected_step in self.OPTIONAL_STEPS:
+            logger.debug("可选步骤 '{}'，跳过页面验证", expected_step)
+            return True
+
         for attempt in range(max_retries):
             current_page = self._detect_current_page()
-            if not current_page:
+            if not current_page or current_page == "未知":
                 logger.debug("无法识别当前页面，继续执行")
                 return True
 
@@ -172,7 +180,7 @@ class TicketWorkflow:
                 time.sleep(1)
                 continue
             elif page_step_idx is not None and page_step_idx > current_step_idx:
-                # 页面超前，可能需要跳过某些步骤
+                # 页面超前，跳过中间步骤
                 logger.info("页面已超前到 '{}'，跳过中间步骤", current_page)
                 return True
 
@@ -241,17 +249,18 @@ XML (末尾是最上层):
 
     def _page_matches_step(self, page: str, step: str) -> bool:
         """判断页面状态是否与步骤匹配。"""
-        # 页面状态到步骤的映射
+        # 页面状态到可执行步骤的映射
+        # 一个页面可能对应多个步骤（例如首页可以开始搜索）
         page_step_map = {
-            "首页": ["启动应用"],
+            "首页": ["启动应用", "搜索演出"],  # 首页可以直接开始搜索
             "搜索页": ["搜索演出"],
-            "搜索结果": ["搜索演出"],
-            "演出详情": ["选择城市", "处理观演人弹窗", "点击预定"],
+            "搜索结果": ["搜索演出", "选择城市"],
+            "演出详情": ["选择城市", "处理观演人弹窗", "点击预定", "选择场次", "选择票档"],
             "城市选择": ["选择城市"],
             "观演人弹窗": ["处理观演人弹窗"],
-            "场次选择": ["选择场次"],
-            "票档选择": ["选择票档"],
-            "数量选择": ["选择张数"],
+            "场次选择": ["选择场次", "选择票档"],  # 场次和票档可能在同一页面
+            "票档选择": ["选择票档", "选择张数"],  # 票档和张数可能在同一页面
+            "数量选择": ["选择张数", "点击确定"],
             "确认订单": ["点击确定", "提交订单"],
             "支付页面": ["提交订单"],
         }
@@ -447,24 +456,35 @@ XML:
         return False
 
     def _step_handle_viewer_popup(self) -> bool:
-        """步骤：处理预填观演人弹窗。
+        """步骤：处理预填观演人弹窗（可选步骤）。
 
         弹窗有两个选项：
         1. 预选实名观演人 - 选择观演人后点击确定
         2. 知道了 - 跳过预选
-        """
-        time.sleep(1)
 
-        # 检查是否有预填观演人弹窗
+        注意：不是所有演出都有此弹窗，没有弹窗时直接跳过。
+        """
+        # 快速检查是否有弹窗（短超时）
         popup_title = self.detector.find(
             "viewer popup",
             textContains="观演人",
-            timeout=3.0,
+            timeout=1.5,
         )
 
         if not popup_title:
-            # 没有弹窗，可能已经处理过或不需要
-            logger.info("未检测到观演人弹窗，继续执行")
+            # 再检查 "知道了" 按钮（弹窗可能只有这个按钮）
+            know_btn = self.detector.find(
+                "know button",
+                text="知道了",
+                timeout=0.5,
+            )
+            if know_btn:
+                self.executor.click(know_btn)
+                logger.info("点击知道了，跳过观演人弹窗")
+                time.sleep(0.3)
+                return True
+            # 没有弹窗，直接跳过此步骤
+            logger.info("未检测到观演人弹窗，跳过此步骤")
             return True
 
         # 如果配置了购票人，尝试预选
