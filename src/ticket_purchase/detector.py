@@ -153,20 +153,37 @@ class Detector:
         """Check if an element exists without full wait."""
         return bool(self.device(**kwargs).wait(timeout=timeout))
 
+    def _extract_relevant_xml(self, xml_full: str, hints: dict, context_size: int = 15000) -> str:
+        """Extract XML portion around target element or use start if not found."""
+        # Try to find position by resourceId or text
+        search_terms = []
+        if hints.get("resourceId"):
+            search_terms.append(hints["resourceId"])
+        if hints.get("text"):
+            search_terms.append(hints["text"])
+        if hints.get("textContains"):
+            search_terms.append(hints["textContains"])
+
+        for term in search_terms:
+            pos = xml_full.find(term)
+            if pos != -1:
+                # Extract context around the found position
+                start = max(0, pos - context_size // 2)
+                end = min(len(xml_full), pos + context_size // 2)
+                logger.debug("Found '{}' at pos {}, extracting XML[{}:{}]", term, pos, start, end)
+                return xml_full[start:end]
+
+        # Fallback: return first portion
+        return xml_full[:context_size]
+
     def _find_with_llm(self, desc: str, timeout: float = 5.0, **hints) -> u2.UiObject | None:
         """Use LLM to analyze page XML and find element."""
         try:
             xml_full = self.device.dump_hierarchy()
-            xml = xml_full[:30000]  # Increase limit for complex pages
 
-            # Debug: check if hint resourceId exists in XML
-            if hints.get("resourceId"):
-                rid = hints["resourceId"]
-                if rid in xml_full:
-                    logger.debug("resourceId '{}' found in XML (pos: {})", rid, xml_full.find(rid))
-                else:
-                    logger.debug("resourceId '{}' NOT in XML, skipping LLM", rid)
-                    return None
+            # Extract relevant XML portion around target element
+            xml = self._extract_relevant_xml(xml_full, hints)
+            logger.debug("XML length: {} (extracted from {})", len(xml), len(xml_full))
 
             # Build hint from kwargs (resourceId, text, etc.)
             hint_str = ""
