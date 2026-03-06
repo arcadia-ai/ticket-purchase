@@ -44,7 +44,8 @@ class TicketWorkflow:
         self.config = config
         self.detector = Detector(device)
         self.executor = Executor(device)
-        self.recovery = RecoveryManager(device)
+        # 共享 LLM client 给 recovery 模块
+        self.recovery = RecoveryManager(device, llm_client=self.detector._llm)
 
     def run(self) -> bool:
         """执行完整的抢票流程。

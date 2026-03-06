@@ -1,24 +1,48 @@
 """异常恢复：弹窗关闭、步骤重试、页面导航。"""
+import json
+import os
 import threading
 import time
 
 import uiautomator2 as u2
 from loguru import logger
 
-# 常见弹窗关闭按钮匹配模式
+# 常见弹窗关闭按钮匹配模式（仅用于 LLM 不可用时的回退）
 POPUP_DISMISS_PATTERNS = [
+    # 弹窗专用关闭按钮 (resourceId 最可靠)
+    {"resourceId": "cn.damai:id/btn_close"},
+    {"resourceId": "cn.damai:id/iv_close"},
+    {"resourceId": "cn.damai:id/dialog_close"},
+    {"resourceId": "cn.damai:id/close_btn"},
+    # 弹窗文本按钮（较通用）
     {"text": "我知道了"},
     {"text": "知道了"},
-    {"text": "关闭"},
-    {"text": "取消"},
     {"text": "暂不"},
     {"text": "跳过"},
     {"text": "不再提醒"},
-    {"textContains": "同意"},
-    {"resourceId": "cn.damai:id/btn_close"},
-    {"resourceId": "cn.damai:id/iv_close"},
-    {"description": "关闭"},
+    {"text": "以后再说"},
+    {"textContains": "同意并继续"},
 ]
+
+# LLM 弹窗检测 prompt
+_POPUP_DETECT_PROMPT = """分析以下 Android UI XML，判断当前页面是否有弹窗(Dialog/Popup)需要关闭。
+
+弹窗特征：
+- 通常有半透明遮罩层
+- 居中显示的对话框
+- 包含"关闭"、"取消"、"我知道了"、"同意"等按钮
+- 非页面主要内容区域
+
+注意区分：
+- 搜索页面的"取消"按钮不是弹窗
+- 页面顶部的返回按钮不是弹窗
+- 正常的功能按钮不是弹窗
+
+只输出 JSON:
+{{"has_popup": true/false, "dismiss_strategy": "resourceId"|"text"|"none", "dismiss_value": "具体值或空", "reason": "简短说明"}}
+
+XML:
+{xml}"""
 
 DAMAI_PACKAGE = "cn.damai"
 
@@ -26,8 +50,9 @@ DAMAI_PACKAGE = "cn.damai"
 class RecoveryManager:
     """管理异常恢复和弹窗关闭。"""
 
-    def __init__(self, device: u2.Device):
+    def __init__(self, device: u2.Device, llm_client=None):
         self.device = device
+        self._llm = llm_client
         self._popup_thread = None
         self._stop_event = threading.Event()
 
@@ -62,15 +87,63 @@ class RecoveryManager:
             self._stop_event.wait(interval)
 
     def _dismiss_popup(self):
-        """尝试关闭任何可见弹窗。"""
+        """尝试关闭任何可见弹窗，优先使用 LLM 判断。"""
+        # Strategy 1: LLM 智能判断
+        if self._llm and self._llm.enabled:
+            result = self._llm_detect_popup()
+            if result:
+                has_popup = result.get("has_popup", False)
+                if not has_popup:
+                    return False  # LLM 判断没有弹窗
+
+                strategy = result.get("dismiss_strategy", "none")
+                value = result.get("dismiss_value", "")
+                reason = result.get("reason", "")
+
+                if strategy != "none" and value:
+                    selector = {strategy: value}
+                    element = self.device(**selector)
+                    if element.exists(timeout=0.5):
+                        element.click()
+                        logger.info("LLM 关闭弹窗: {} ({})", selector, reason)
+                        time.sleep(0.3)
+                        return True
+                    else:
+                        logger.debug("LLM 建议的元素不存在: {}", selector)
+
+        # Strategy 2: 规则匹配回退
         for pattern in POPUP_DISMISS_PATTERNS:
             element = self.device(**pattern)
             if element.exists(timeout=0.3):
                 element.click()
-                logger.info("已关闭弹窗: {}", pattern)
+                logger.info("规则关闭弹窗: {}", pattern)
                 time.sleep(0.3)
                 return True
         return False
+
+    def _llm_detect_popup(self) -> dict | None:
+        """使用 LLM 分析页面是否有弹窗。"""
+        try:
+            xml = self.device.dump_hierarchy()[:20000]
+            prompt = _POPUP_DETECT_PROMPT.format(xml=xml)
+
+            response = self._llm.chat(prompt)
+            if not response:
+                return None
+
+            # 提取 JSON
+            json_str = response.strip()
+            if "```json" in json_str:
+                json_str = json_str.split("```json")[1].split("```")[0].strip()
+            elif "```" in json_str:
+                json_str = json_str.split("```")[1].split("```")[0].strip()
+
+            result = json.loads(json_str)
+            logger.debug("LLM 弹窗检测: {}", result)
+            return result
+        except Exception as e:
+            logger.debug("LLM 弹窗检测失败: {}", e)
+            return None
 
     def ensure_in_app(self):
         """确保仍在大麦 App 内，必要时重启。"""
